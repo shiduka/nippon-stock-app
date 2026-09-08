@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>バッチ処理設計 | 日本株投資先発掘アプリ設計書</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h2>設計書メニュー</h2>
+        <ul>
+            <li><a href="index.html">1. システム概要</a></li>
+            <li><a href="architecture.html">2. アーキテクチャ</a></li>
+            <li><a href="database.html">3. データベース設計</a></li>
+            <li><a href="batch_processing.html" class="active">4. バッチ処理設計</a></li>
+            <li><a href="frontend.html">5. 画面・UI設計</a></li>
+        </ul>
+    </div>
+    <div class="content">
+        <h1>4. バッチ処理設計・プログラム実装仕様</h1>
+        <p>GitHub Actionsを用いて定期実行するPythonスクリプトの詳細な実装仕様を定義する。この仕様に従えば、誰でも同じ結果を得るバッチプログラムを作成できる。</p>
+
+        <h2>4.1 スケジュール定義</h2>
+        <ul>
+            <li><strong>① JPX会社情報巡回:</strong> 平日 17:00 (新規上場、上場廃止、社名変更の検知)</li>
+            <li><strong>② 日次株価収集:</strong> 平日 18:00 (直近3日分の差分を取得し、ストップ高安を判定)</li>
+            <li><strong>③ 週次信用残高収集:</strong> 毎週火曜 19:00 (JPXからCSVを取得)</li>
+            <li><strong>④ 優待・決算巡回:</strong> 毎週日曜 02:00</li>
+            <li><strong>⑤ ローカルバックアップ＆データパージ:</strong> 毎週日曜 03:00</li>
+        </ul>
+
+        <h2>4.2 株価取得処理 (yfinanceベース) 詳細仕様</h2>
+        <p>対象ファイル: <code>fetch_stock_prices.py</code></p>
+        <div class="note">
+            <strong>【実装必須要件】</strong><br>
+            <ul>
+                <li><strong>銘柄の指定:</strong> 日本株であるため、必ず取得対象の銘柄コードの末尾に <code>.T</code> を付与して <code>yf.Ticker("7203.T")</code> のように呼び出すこと。</li>
+                <li><strong>株式分割の対応:</strong> yfinanceが返すOpen, High, Low, Closeは全て「分割・併合調整済み」である。DB登録時は <code>close_price</code> と <code>adjusted_close</code> の両方に同じ値をセットしてよい。</li>
+                <li><strong>前日比の計算:</strong> 指定した日数(例:3日)の「前日比」を計算するため、APIへは <code>period=4d</code> のように「+1日分」のリクエストを送り、Pandasの <code>shift(1)</code> で差分を計算した後、直近3日分に <code>tail(3)</code> で絞り込むこと。</li>
+            </ul>
+        </div>
+        
+        <h3>ストップ高・安フラグの判定ロジックについて</h3>
+        <p>現在のプロトタイプではプレースホルダー（False固定）としているが、本格実装時は前日の <code>close_price</code> を基準とした「制限値幅表」に基づく判定関数を作成し、本日の <code>high_price</code> や <code>low_price</code> がそれに到達しているかで判定を行う。</p>
+
+        <h2>4.3 その他のデータ取得仕様</h2>
+        <ul>
+            <li><strong>信用取引残高:</strong> JPX公式の「二市場信用取引残高」ページよりエクセル/CSVを取得する。ファイル内の「基準日」列（通常は金曜日）を抽出し、DBの <code>report_date</code> に設定すること。発表日（火曜日）ではない点に注意。</li>
+            <li><strong>優待・決算日:</strong> Yahoo!ファイナンス、または「みんかぶ」のスクレイピング。優待内容は自然言語のため、HTMLテキストから不要なタグを取り除いた純粋なテキストを <code>benefit_summary</code> に格納し、正規表現を用いて「最低必要株数(株)」の数値を抽出し <code>min_shares</code> に格納する。</li>
+        </ul>
+
+        <h2>4.4 エラーリカバリーと通知仕様</h2>
+        <ul>
+            <li><strong>エラーリトライ:</strong> WebスクレイピングやAPI呼び出し部分はネットワークエラーが頻出するため、<code>tenacity</code> 等のライブラリを用いて自動で3回のリトライ処理（Exponential Backoff）を組み込むこと。</li>
+            <li><strong>サイレント実行:</strong> 夜間バッチでエラーが発生しても、Webhook経由での即時LINE通知は行わない（ログ出力のみ）。</li>
+            <li><strong>サマリー通知:</strong> 翌朝07:00に別のジョブを起動し、ログを解析して「取得成功〇〇件、エラー〇〇件」というサマリー1通のみをLINEへ通知する。</li>
+            <li><strong>欠損データの補完:</strong> 株価バッチは常に「直近3日分」を取得するため、前日バッチがダウンしても翌日バッチが成功すれば自動的に欠損データが補完される設計（冪等性の確保）とする。</li>
+        </ul>
+    </div>
+</body>
+</html>

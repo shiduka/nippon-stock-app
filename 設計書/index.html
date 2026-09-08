@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>システム概要 | 日本株投資先発掘アプリ設計書</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h2>設計書メニュー</h2>
+        <ul>
+            <li><a href="index.html" class="active">1. システム概要</a></li>
+            <li><a href="architecture.html">2. アーキテクチャ</a></li>
+            <li><a href="database.html">3. データベース設計</a></li>
+            <li><a href="batch_processing.html">4. バッチ処理設計</a></li>
+            <li><a href="frontend.html">5. 画面・UI設計</a></li>
+        </ul>
+    </div>
+    <div class="content">
+        <h1>日本株投資先発掘アプリ システム詳細設計書</h1>
+        
+        <h2>1. システム概要・目的</h2>
+        <p>日本株市場（プライム・スタンダード・グロース等）の上場企業データ、日次株価、株主優待データ、および信用取引残高データを完全自動で収集・蓄積するシステムである。<br>
+        蓄積したデータをもとに、スマートフォンやPCのブラウザから直感的に銘柄のスクリーニングやチャート分析を行えるWebアプリケーションを提供する。</p>
+        
+        <h3>開発の前提・ポリシー</h3>
+        <ul>
+            <li><strong>運用コスト:</strong> 完全無料（GitHub Actions, Supabase/DuckDB, Streamlit Community Cloudを活用）</li>
+            <li><strong>利用環境:</strong> モバイル（Android等のスマホブラウザ）ファースト、PCブラウザ対応</li>
+            <li><strong>開発言語:</strong> Python, SQL</li>
+            <li><strong>再現性:</strong> この設計書を読めば、他の開発者でも同等のシステムを構築・実装できるように詳細なロジックを定義する。</li>
+        </ul>
+
+        <h3>本ドキュメントの構成</h3>
+        <p>左側のメニューから各設計詳細へアクセスしてください。</p>
+        <ul>
+            <li><strong>2. アーキテクチャ:</strong> 全体構成図、使用技術、データフロー</li>
+            <li><strong>3. データベース設計:</strong> Supabase上のテーブル定義とパフォーマンス要件</li>
+            <li><strong>4. バッチ処理設計:</strong> Pythonスクリプトによるデータ取得の詳細仕様とロジック（yfinanceの活用等）</li>
+            <li><strong>5. 画面・UI設計:</strong> Streamlitを用いたフロントエンド仕様とDB負荷分散設計</li>
+        </ul>
+    </div>
+</body>
+</html>

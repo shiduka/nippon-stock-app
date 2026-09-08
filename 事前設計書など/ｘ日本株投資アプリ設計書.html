@@ -1,0 +1,196 @@
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>日本株 投資先発掘・分析システム 詳細設計書</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    color: #24292e;
+    max-width: 960px;
+    margin: 40px auto;
+    padding: 0 20px;
+  }
+  h1 { border-bottom: 2px solid #eaecef; padding-bottom: 0.3em; color: #0366d6; }
+  h2 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 2em; color: #1f2328; }
+  h3 { margin-top: 1.5em; color: #24292f; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+  }
+  th, td {
+    border: 1px solid #d0d7de;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 14px;
+  }
+  th { background-color: #f6f8fa; font-weight: 600; }
+  tr:nth-child(even) { background-color: #fcfcfc; }
+  pre {
+    background-color: #f6f8fa;
+    border-radius: 6px;
+    padding: 14px;
+    overflow: auto;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  code {
+    background-color: rgba(175,184,193,0.2);
+    padding: 0.2em 0.4em;
+    border-radius: 4px;
+    font-size: 85%;
+  }
+  pre code { background-color: transparent; padding: 0; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 12px;
+    background-color: #ddf4ff;
+    color: #0969da;
+  }
+  .card {
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 16px;
+    background-color: #ffffff;
+  }
+</style>
+</head>
+<body>
+
+<h1>日本株 投資先発掘・分析システム 詳細設計書</h1>
+<p><span class="badge">バージョン 1.0.0</span> <span class="badge">確定版</span> 作成日: 2026-09-06</p>
+
+<h2>1. システム概要・基本方針</h2>
+<div class="card">
+  <h3>1.1 目的</h3>
+  <p>東証上場全銘柄の株価・企業情報・株主優待・需給（信用残高）データを完全無料のインフラ上で日次収集・蓄積し、スマートフォンおよびPCから快適にスクリーニング・分析できるシステムを構築する。</p>
+  <h3>1.2 基本設計方針</h3>
+  <ul>
+    <li><strong>完全無料運用</strong>: GitHub Actions、Streamlit Community Cloud、Supabase無料枠、LINE Messaging APIの組み合わせでサーバー・データ代0円運用。</li>
+    <li><strong>データの永続性と履歴追跡</strong>: 上場廃止企業は論理削除（<code>status='DELISTED'</code>）で保管。社名変更履歴も完全保持し、旧社名からの検索を可能とする。</li>
+    <li><strong>自己治癒型リカバリー</strong>: 日次株価バッチは直近3日間の未取得差分を自動補完し、障害時も手動操作なしで自動復旧。</li>
+    <li><strong>モバイルファースト</strong>: スマホでの細かい操作を不要とし、PCで定義した「スマート・スクリーナー」を選ぶだけの軽快検索を実現。</li>
+  </ul>
+</div>
+
+<h2>2. データベース詳細設計（テーブル定義）</h2>
+
+<h3>① companies（企業マスター）</h3>
+<table>
+  <thead>
+    <tr><th>カラム名</th><th>データ型</th><th>制約</th><th>説明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>ticker_symbol</code></td><td>VARCHAR(10)</td><td>PRIMARY KEY</td><td>銘柄コード (例: '7743')</td></tr>
+    <tr><td><code>company_name</code></td><td>VARCHAR(255)</td><td>NOT NULL</td><td>最新の企業名</td></tr>
+    <tr><td><code>market</code></td><td>VARCHAR(50)</td><td>NOT NULL</td><td>市場区分 (プライム/スタンダード/グロース)</td></tr>
+    <tr><td><code>sector_33</code></td><td>VARCHAR(100)</td><td>-</td><td>33業種区分</td></tr>
+    <tr><td><code>status</code></td><td>VARCHAR(20)</td><td>NOT NULL</td><td>'ACTIVE'(上場中) / 'DELISTED'(上場廃止)</td></tr>
+    <tr><td><code>listing_date</code></td><td>DATE</td><td>-</td><td>新規上場日</td></tr>
+    <tr><td><code>delisted_date</code></td><td>DATE</td><td>-</td><td>上場廃止日</td></tr>
+    <tr><td><code>delisted_reason</code></td><td>TEXT</td><td>-</td><td>上場廃止理由</td></tr>
+    <tr><td><code>fiscal_month</code></td><td>SMALLINT</td><td>-</td><td>本決算月 (1〜12)</td></tr>
+    <tr><td><code>next_earnings_date</code></td><td>DATE</td><td>-</td><td>次回決算発表予定日</td></tr>
+    <tr><td><code>extra_data</code></td><td>JSONB</td><td>-</td><td>将来拡張枠 (IR情報・URL等)</td></tr>
+  </tbody>
+</table>
+
+<h3>② company_name_histories（社名変更履歴）</h3>
+<table>
+  <thead>
+    <tr><th>カラム名</th><th>データ型</th><th>制約</th><th>説明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>history_id</code></td><td>BIGSERIAL</td><td>PRIMARY KEY</td><td>履歴連番ID</td></tr>
+    <tr><td><code>ticker_symbol</code></td><td>VARCHAR(10)</td><td>FOREIGN KEY</td><td>銘柄コード</td></tr>
+    <tr><td><code>old_company_name</code></td><td>VARCHAR(255)</td><td>NOT NULL</td><td>変更前社名</td></tr>
+    <tr><td><code>new_company_name</code></td><td>VARCHAR(255)</td><td>NOT NULL</td><td>変更後社名</td></tr>
+    <tr><td><code>effective_date</code></td><td>DATE</td><td>NOT NULL</td><td>商号変更日</td></tr>
+  </tbody>
+</table>
+
+<h3>③ daily_stock_prices（日次株価）</h3>
+<table>
+  <thead>
+    <tr><th>カラム名</th><th>データ型</th><th>制約</th><th>説明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>ticker_symbol</code></td><td>VARCHAR(10)</td><td>PK / FK</td><td>銘柄コード</td></tr>
+    <tr><td><code>trade_date</code></td><td>DATE</td><td>PK</td><td>取引日付</td></tr>
+    <tr><td><code>open_price</code></td><td>DOUBLE PRECISION</td><td>-</td><td>始値</td></tr>
+    <tr><td><code>high_price</code></td><td>DOUBLE PRECISION</td><td>-</td><td>高値</td></tr>
+    <tr><td><code>low_price</code></td><td>DOUBLE PRECISION</td><td>-</td><td>安値</td></tr>
+    <tr><td><code>close_price</code></td><td>DOUBLE PRECISION</td><td>NOT NULL</td><td>終値</td></tr>
+    <tr><td><code>volume</code></td><td>BIGINT</td><td>-</td><td>出来高</td></tr>
+    <tr><td><code>is_stop_high</code></td><td>BOOLEAN</td><td>NOT NULL</td><td>ストップ高フラグ</td></tr>
+    <tr><td><code>is_stop_low</code></td><td>BOOLEAN</td><td>NOT NULL</td><td>ストップ安フラグ</td></tr>
+    <tr><td><code>extra_data</code></td><td>JSONB</td><td>-</td><td>テクニカル指標拡張枠</td></tr>
+  </tbody>
+</table>
+
+<h3>④ shareholder_benefits（株主優待）</h3>
+<table>
+  <thead>
+    <tr><th>カラム名</th><th>データ型</th><th>制約</th><th>説明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>benefit_id</code></td><td>BIGSERIAL</td><td>PRIMARY KEY</td><td>優待ID</td></tr>
+    <tr><td><code>ticker_symbol</code></td><td>VARCHAR(10)</td><td>FOREIGN KEY</td><td>銘柄コード</td></tr>
+    <tr><td><code>record_month</code></td><td>SMALLINT</td><td>NOT NULL</td><td>権利確定月 (1〜12)</td></tr>
+    <tr><td><code>min_shares</code></td><td>INTEGER</td><td>NOT NULL</td><td>最低必要株数</td></tr>
+    <tr><td><code>category</code></td><td>VARCHAR(100)</td><td>-</td><td>優待ジャンル (食品、金券等)</td></tr>
+    <tr><td><code>benefit_summary</code></td><td>TEXT</td><td>NOT NULL</td><td>優待内容要約</td></tr>
+    <tr><td><code>detailed_condition</code></td><td>TEXT</td><td>-</td><td>継続保有条件等</td></tr>
+    <tr><td><code>is_active</code></td><td>BOOLEAN</td><td>NOT NULL</td><td>実施中フラグ (廃止時FALSE)</td></tr>
+  </tbody>
+</table>
+
+<h3>⑤ margin_balances（信用取引残高）</h3>
+<table>
+  <thead>
+    <tr><th>カラム名</th><th>データ型</th><th>制約</th><th>説明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>ticker_symbol</code></td><td>VARCHAR(10)</td><td>PK / FK</td><td>銘柄コード</td></tr>
+    <tr><td><code>report_date</code></td><td>DATE</td><td>PK</td><td>基準日 (各週金曜)</td></tr>
+    <tr><td><code>margin_buy_volume</code></td><td>BIGINT</td><td>NOT NULL</td><td>信用買い残 (株数)</td></tr>
+    <tr><td><code>margin_buy_change</code></td><td>BIGINT</td><td>-</td><td>買い残 前週比増減</td></tr>
+    <tr><td><code>margin_sell_volume</code></td><td>BIGINT</td><td>NOT NULL</td><td>信用売り残 (株数)</td></tr>
+    <tr><td><code>margin_sell_change</code></td><td>BIGINT</td><td>-</td><td>売り残 前週比増減</td></tr>
+    <tr><td><code>margin_ratio</code></td><td>DOUBLE PRECISION</td><td>-</td><td>信用倍率 (買い残 / 売り残)</td></tr>
+  </tbody>
+</table>
+
+<h2>3. 自動バッチ処理・通知設計</h2>
+<div class="card">
+  <h3>バッチスケジュール</h3>
+  <ul>
+    <li><strong>平日 17:00</strong>: JPX新着巡回（新規上場・上場廃止・商号変更を検知し即座にマスター反映）</li>
+    <li><strong>平日 18:00</strong>: 日次株価収集（直近3営業日自動補完 ＋ ストップ高安判定）</li>
+    <li><strong>毎週火曜 19:00</strong>: JPX公表の信用残高CSV集計・蓄積</li>
+    <li><strong>毎週日曜 02:00</strong>: 株主優待・決算発表日巡回</li>
+    <li><strong>毎週日曜 03:00</strong>: 全履歴Parquetバックアップ出力</li>
+    <li><strong>毎朝 07:00</strong>: LINE朝サマリー送信（夜間は完全無音・エラー時も朝集約）</li>
+  </ul>
+</div>
+
+<h2>4. Streamlit 画面設計</h2>
+<div class="card">
+  <h3>4つのタブ構成</h3>
+  <ol>
+    <li><strong>タブ1：銘柄検索・個別詳細</strong>: コード/社名/旧社名検索、日足チャート(Plotly)、信用残高推移グラフ、優待情報。</li>
+    <li><strong>タブ2：株主優待スクリーナー</strong>: 確定月（今月・来月ボタン）、優待カテゴリ、必要資金による絞り込み。</li>
+    <li><strong>タブ3：スマート・スクリーナー</strong>: スマホ用の事前定義プリセット選択（ストップ高安、信用倍率1倍割れ、つなぎ売り候補等）。</li>
+    <li><strong>タブ4：システム状況・データ同期</strong>: バッチ稼働ステータス確認、手動リカバリー、Parquetダウンロード。</li>
+  </ol>
+</div>
+
+</body>
+</html>

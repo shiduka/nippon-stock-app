@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日本株投資先発掘アプリ システム詳細設計書</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 10px;
+            color: #2c3e50;
+        }
+        h2 {
+            border-left: 5px solid #3498db;
+            padding-left: 10px;
+            margin-top: 40px;
+            color: #2980b9;
+        }
+        h3 {
+            margin-top: 30px;
+            color: #2c3e50;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 20px;
+            background-color: #fff;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            color: #333;
+        }
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: "Courier New", Courier, monospace;
+        }
+        .note {
+            background-color: #ffffcc;
+            border-left: 4px solid #f1c40f;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>日本株投資先発掘アプリ システム詳細設計書</h1>
+
+        <h2>1. システム概要・目的</h2>
+        <p>日本株市場（プライム・スタンダード・グロース等）の上場企業データ、日次株価、株主優待データ、および信用取引残高データを完全自動で収集・蓄積するシステム。蓄積したデータをもとに、スマートフォンやPCのブラウザから直感的に銘柄のスクリーニングやチャート分析を行えるWebアプリケーションを提供する。</p>
+        <ul>
+            <li><strong>運用コスト:</strong> 完全無料（GitHub Actions, Supabase/DuckDB, Streamlit Community Cloudを活用）</li>
+            <li><strong>利用環境:</strong> モバイル（Android等のスマホブラウザ）ファースト、PCブラウザ対応</li>
+            <li><strong>開発言語:</strong> Python, SQL</li>
+        </ul>
+
+        <h2>2. システムアーキテクチャ構成</h2>
+        <pre>
+【自動データ収集バッチ】 (GitHub Actions)
+  │
+  ├─ 1. JPX適時開示スクレイピング（毎日） ─> 企業マスター更新（新規上場・廃止・社名変更）
+  ├─ 2. 株価API/スクレイピング（毎日）  ─> 日次株価・ストップ高安の取得
+  ├─ 3. 優待・決算日情報取得（週1回）   ─> 優待新設/廃止、次回決算予定日の更新
+  └─ 4. JPX信用残高CSV取得（週1回）     ─> 信用買い残・売り残の更新
+  │
+【データストア】 (Supabase PostgreSQL + ローカル同期ファイル)
+  │
+  ├─ ホットデータ: Supabase (日々の画面検索用)
+  └─ コールドデータ: Parquet/DuckDB形式 (週次で全履歴を圧縮・ローカル分析用に出力)
+  │
+【フロントエンド画面】 (Streamlit Community Cloud)
+  └─ スマホ/PCブラウザからアクセス。プリセット条件によるスマート検索とチャート表示
+        </pre>
+
+        <h2>3. データベース詳細設計 (テーブル定義)</h2>
+        <p>将来的な項目追加を見据え、各テーブルに <code>extra_data (JSONB / TEXT)</code> を用意する。</p>
+
+        <h3>3.1 companies (企業マスターテーブル)</h3>
+        <table>
+            <tr><th>カラム名</th><th>データ型</th><th>PK/FK</th><th>説明</th></tr>
+            <tr><td>ticker_symbol</td><td>VARCHAR(10)</td><td>PK</td><td>銘柄コード</td></tr>
+            <tr><td>company_name</td><td>VARCHAR(255)</td><td></td><td>最新の企業名</td></tr>
+            <tr><td>market</td><td>VARCHAR(50)</td><td></td><td>市場区分</td></tr>
+            <tr><td>sector_33</td><td>VARCHAR(100)</td><td></td><td>33業種区分</td></tr>
+            <tr><td>status</td><td>VARCHAR(20)</td><td></td><td>'ACTIVE' (上場中) / 'DELISTED' (上場廃止)</td></tr>
+            <tr><td>delisted_date</td><td>DATE</td><td></td><td>上場廃止日</td></tr>
+            <tr><td>fiscal_month</td><td>SMALLINT</td><td></td><td>本決算月 (1〜12)</td></tr>
+            <tr><td>next_earnings_date</td><td>DATE</td><td></td><td>次回決算発表予定日</td></tr>
+            <tr><td>extra_data</td><td>JSONB</td><td></td><td>自由拡張枠</td></tr>
+        </table>
+
+        <h3>3.2 company_name_histories (社名変更履歴テーブル)</h3>
+        <table>
+            <tr><th>カラム名</th><th>データ型</th><th>PK/FK</th><th>説明</th></tr>
+            <tr><td>history_id</td><td>BIGSERIAL</td><td>PK</td><td>履歴連番ID</td></tr>
+            <tr><td>ticker_symbol</td><td>VARCHAR(10)</td><td>FK</td><td>銘柄コード</td></tr>
+            <tr><td>old_company_name</td><td>VARCHAR(255)</td><td></td><td>変更前の旧社名</td></tr>
+            <tr><td>new_company_name</td><td>VARCHAR(255)</td><td></td><td>変更後の新社名</td></tr>
+            <tr><td>effective_date</td><td>DATE</td><td></td><td>商号変更の効力発生日</td></tr>
+        </table>
+
+        <h3>3.3 daily_stock_prices (日次株価テーブル)</h3>
+        <table>
+            <tr><th>カラム名</th><th>データ型</th><th>PK/FK</th><th>説明</th></tr>
+            <tr><td>ticker_symbol</td><td>VARCHAR(10)</td><td>PK1/FK</td><td>銘柄コード</td></tr>
+            <tr><td>trade_date</td><td>DATE</td><td>PK2</td><td>取引日付</td></tr>
+            <tr><td>open_price</td><td>DOUBLE PRECISION</td><td></td><td>始値</td></tr>
+            <tr><td>high_price</td><td>DOUBLE PRECISION</td><td></td><td>高値</td></tr>
+            <tr><td>low_price</td><td>DOUBLE PRECISION</td><td></td><td>安値</td></tr>
+            <tr><td>close_price</td><td>DOUBLE PRECISION</td><td></td><td>終値</td></tr>
+            <tr><td>volume</td><td>BIGINT</td><td></td><td>出来高</td></tr>
+            <tr><td>price_change</td><td>DOUBLE PRECISION</td><td></td><td>前日比（騰落幅）</td></tr>
+            <tr><td>is_stop_high</td><td>BOOLEAN</td><td></td><td>ストップ高フラグ</td></tr>
+            <tr><td>is_stop_low</td><td>BOOLEAN</td><td></td><td>ストップ安フラグ</td></tr>
+            <tr><td>extra_data</td><td>JSONB</td><td></td><td>自由拡張枠</td></tr>
+        </table>
+
+        <h3>3.4 shareholder_benefits (株主優待テーブル)</h3>
+        <table>
+            <tr><th>カラム名</th><th>データ型</th><th>PK/FK</th><th>説明</th></tr>
+            <tr><td>benefit_id</td><td>BIGSERIAL</td><td>PK</td><td>優待ID</td></tr>
+            <tr><td>ticker_symbol</td><td>VARCHAR(10)</td><td>FK</td><td>銘柄コード</td></tr>
+            <tr><td>record_month</td><td>SMALLINT</td><td></td><td>権利確定月</td></tr>
+            <tr><td>min_shares</td><td>INTEGER</td><td></td><td>必要株数</td></tr>
+            <tr><td>benefit_summary</td><td>TEXT</td><td></td><td>優待内容要約</td></tr>
+            <tr><td>is_active</td><td>BOOLEAN</td><td></td><td>True:実施中 / False:廃止</td></tr>
+            <tr><td>abolished_date</td><td>DATE</td><td></td><td>優待廃止日</td></tr>
+            <tr><td>extra_data</td><td>JSONB</td><td></td><td>自由拡張枠</td></tr>
+        </table>
+
+        <h3>3.5 margin_balances (信用取引残高テーブル)</h3>
+        <table>
+            <tr><th>カラム名</th><th>データ型</th><th>PK/FK</th><th>説明</th></tr>
+            <tr><td>ticker_symbol</td><td>VARCHAR(10)</td><td>PK1/FK</td><td>銘柄コード</td></tr>
+            <tr><td>report_date</td><td>DATE</td><td>PK2</td><td>基準日（通常は金曜日）</td></tr>
+            <tr><td>margin_buy_volume</td><td>BIGINT</td><td></td><td>信用買い残（株数）</td></tr>
+            <tr><td>margin_sell_volume</td><td>BIGINT</td><td></td><td>信用売り残（株数）</td></tr>
+            <tr><td>margin_ratio</td><td>DOUBLE PRECISION</td><td></td><td>信用倍率 (買い残 ÷ 売り残)</td></tr>
+        </table>
+
+        <h2>4. バッチ処理・データ自動収集フロー (GitHub Actions)</h2>
+        <p>平日の夜間および週末にスケジュール実行し、全データを自動更新する。</p>
+        
+        <h3>4.1 スケジュール定義</h3>
+        <ul>
+            <li><strong>① JPX会社情報巡回:</strong> 平日 17:00 (新規上場、上場廃止、社名変更の検知)</li>
+            <li><strong>② 日次株価収集:</strong> 平日 18:00 (直近3日分の差分を取得し、ストップ高安を判定)</li>
+            <li><strong>③ 週次信用残高収集:</strong> 毎週火曜 19:00 (JPXからCSVを取得)</li>
+            <li><strong>④ 優待・決算巡回:</strong> 毎週日曜 02:00</li>
+            <li><strong>⑤ ローカルバックアップ:</strong> 毎週日曜 03:00 (全履歴のParquetファイル出力)</li>
+        </ul>
+
+        <div class="note">
+            <strong>エラーリカバリー仕様（日次株価）:</strong><br>
+            単一日の取得ではなく「直近3営業日」を常に取得対象とする。前日にエラーでバッチが停止した場合でも、翌日のバッチ実行時に未取得データが自動的に補完される。また、長期間の停止に備え、日付範囲を指定して再取得する手動起動用スクリプト（workflow_dispatch対応）も実装する。
+        </div>
+
+        <h2>5. 通知設計 (LINE連携)</h2>
+        <p>夜間のバッチ実行時には通知音によるストレスを排除し、毎朝の結果サマリーのみをLINEに送信する。</p>
+        <ul>
+            <li><strong>通知手段:</strong> LINE Messaging API (自分宛てプッシュ通知)</li>
+            <li><strong>夜間処理時:</strong> エラーが発生してもログ出力のみ行い、LINE通知は送信しない（サイレント処理）。<code>tenacity</code> ライブラリによる3回の自動リトライで一時的エラーを吸収。</li>
+            <li><strong>朝のサマリー通知:</strong> 毎朝 07:00 に、前夜の全バッチ結果（取得件数、エラーの有無）を1通のメッセージとして送信する。</li>
+        </ul>
+
+        <h2>6. 画面・UI設計 (Streamlit)</h2>
+        <p>スマートフォンでの片手操作を前提とした1カラムレイアウト。上部の4つのタブ（またはセレクトボックス）で画面を切り替える。</p>
+
+        <h3>6.1 画面タブ構成</h3>
+        <ol>
+            <li><strong>タブ1【個別銘柄詳細】:</strong> 検索バー（旧社名対応）。直近株価、イベント情報（次回決算日）、インタラクティブチャート（ローソク足、移動平均、出来高、信用残高推移）、優待詳細を縦スクロールで表示。</li>
+            <li><strong>タブ2【優待スクリーナー】:</strong> 権利確定月、ジャンル、最低投資金額などのフィルターを用いて、テーブル形式で優待銘柄を検索。</li>
+            <li><strong>タブ3【スマート・スクリーナー】:</strong> 事前定義されたプリセット条件（例:「🚀 本日のストップ高」「⚡ 信用倍率1倍割れの好取組」「🎁 今月権利確定」）をドロップダウンから選ぶだけで、複雑なSQL条件によるスクリーニング結果を即座に表示。</li>
+            <li><strong>タブ4【システム管理】:</strong> バッチの直近ステータス確認、手動リカバリー実行ボタン、ローカル分析用Parquetファイルのダウンロード。</li>
+        </ol>
+
+        <h3>6.2 プリセット条件管理 (presets.py)</h3>
+        <p>タブ3で使用する検索条件はPythonの辞書形式で管理し、PCでの条件追加・変更を容易にする。</p>
+<pre>
+SCREENING_PRESETS = {
+    "signal_stop_high": {
+        "title": "🚀 本日のストップ高",
+        "query": "is_stop_high = TRUE AND status = 'ACTIVE'"
+    },
+    "margin_squeeze_candidates": {
+        "title": "⚡ 信用倍率1倍割れの踏み上げ候補",
+        "query": "margin_ratio < 1.0 AND margin_sell_volume > 50000"
+    }
+}
+</pre>
+    </div>
+</body>
+</html>

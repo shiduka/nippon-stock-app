@@ -1,0 +1,19 @@
+japan-stock-screener/
+├── .github/
+│   └── workflows/
+│       ├── daily_batch.yml       # 日次バッチ (JPX・株価)
+│       ├── weekly_batch.yml      # 週次バッチ (信用・優待)
+│       ├── morning_notify.yml    # 朝7時LINEサマリー
+│       └── manual_recovery.yml   # 手動バックフィル
+├── src/
+│   ├── app.py                    # Streamlit アプリケーション本体
+│   ├── presets.py                # スマート・スクリーナー条件定義
+│   ├── notifier.py               # LINE通知共通モジュール
+│   ├── database.py               # DB接続・クエリ共通処理
+│   ├── collector_jpx.py          # JPX新着巡回スクリプト
+│   ├── collector_prices.py       # 日次株価収集スクリプト
+│   ├── collector_margin.py       # 信用残高収集スクリプト
+│   ├── collector_benefits.py     # 優待情報収集スクリプト
+│   └── recover_prices.py         # リカバリースクリプト
+├── requirements.txt
+└── README.md

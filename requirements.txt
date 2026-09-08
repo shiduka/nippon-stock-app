@@ -1,0 +1,9 @@
+requests
+beautifulsoup4
+pandas
+yfinance
+supabase
+python-dotenv
+streamlit
+plotly
+openpyxl

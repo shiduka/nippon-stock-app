@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>画面・UI設計 | 日本株投資先発掘アプリ設計書</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h2>設計書メニュー</h2>
+        <ul>
+            <li><a href="index.html">1. システム概要</a></li>
+            <li><a href="architecture.html">2. アーキテクチャ</a></li>
+            <li><a href="database.html">3. データベース設計</a></li>
+            <li><a href="batch_processing.html">4. バッチ処理設計</a></li>
+            <li><a href="frontend.html" class="active">5. 画面・UI設計</a></li>
+        </ul>
+    </div>
+    <div class="content">
+        <h1>5. 画面・UI設計 (Streamlit)</h1>
+        <p>スマートフォンでの片手操作を前提とした1カラムレイアウトを採用。上部の4つのタブ（またはセレクトボックス）で画面を切り替える。</p>
+
+        <h2>5.1 画面タブ構成</h2>
+        <ol>
+            <li><strong>【個別銘柄詳細】:</strong> 検索バー（銘柄コード、または企業名の一部で曖昧検索）。直近株価、イベント情報（次回決算日）、インタラクティブチャート（ローソク足、移動平均、出来高、信用残高推移）、優待詳細を縦スクロールで表示。</li>
+            <li><strong>【優待スクリーナー】:</strong> 権利確定月（マルチセレクト）、ジャンル、最低投資金額などのフィルターを用いて、テーブル形式で優待銘柄を検索。</li>
+            <li><strong>【スマート・スクリーナー】:</strong> 事前定義されたプリセット条件（例:「🚀 本日のストップ高」「⚡ 信用倍率1倍割れの好取組」）をドロップダウンから選ぶだけで、結果を即座に表示。</li>
+            <li><strong>【システム管理】:</strong> バッチの直近ステータス確認、手動リカバリー実行ボタン、ローカル分析用Parquetファイルのダウンロード用リンク。</li>
+        </ol>
+
+        <h2>5.2 パフォーマンスとDB負荷分散設計 (重要仕様)</h2>
+        <p>Streamlit Community Cloudはメモリ上限（約1GB）が厳しく、全銘柄データをPandasに読み込んでメモリ上でフィルタリングを行うとアプリがクラッシュする。</p>
+        <div class="warning">
+            <strong>実装ルール（Pushdown）:</strong>
+            <ul>
+                <li><code>SELECT * FROM daily_stock_prices</code> のような全件取得は厳禁とする。</li>
+                <li>「スマート・スクリーナー」などの複雑な条件検索は、すべて Supabase の PostgreSQL 側で実行させる。必要に応じてSQLのViewや、Stored Procedure (RPC) を定義して呼び出すこと。</li>
+                <li>Streamlitアプリ側は、SQLで <code>LIMIT 100</code> など絞り込まれた上位の軽量な結果セットのみを受け取り、画面への描画（レンダリング）に専念する「UI層」として振る舞うこと。</li>
+            </ul>
+        </div>
+
+        <h2>5.3 スクリーニング用プリセット定義 (Python)</h2>
+        <p>タブ3で使用する検索条件は、後から追加しやすいようにPythonの辞書形式（設定ファイル）で管理する。</p>
+<pre>
+<code>
+SCREENING_PRESETS = {
+    "signal_stop_high": {
+        "title": "🚀 本日のストップ高",
+        "sql_where_clause": "is_stop_high = TRUE AND status = 'ACTIVE'"
+    },
+    "margin_squeeze_candidates": {
+        "title": "⚡ 信用倍率1倍割れの踏み上げ候補",
+        "sql_where_clause": "margin_ratio < 1.0 AND margin_sell_volume > 50000"
+    },
+    "high_dividend": {
+        "title": "💰 高配当 (4%以上) ＆ 今月決算",
+        "sql_where_clause": "dividend_yield >= 4.0 AND fiscal_month = EXTRACT(MONTH FROM CURRENT_DATE)"
+    }
+}
+</code>
+</pre>
+    </div>
+</body>
+</html>

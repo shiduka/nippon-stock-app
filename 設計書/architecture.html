@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>アーキテクチャ | 日本株投資先発掘アプリ設計書</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h2>設計書メニュー</h2>
+        <ul>
+            <li><a href="index.html">1. システム概要</a></li>
+            <li><a href="architecture.html" class="active">2. アーキテクチャ</a></li>
+            <li><a href="database.html">3. データベース設計</a></li>
+            <li><a href="batch_processing.html">4. バッチ処理設計</a></li>
+            <li><a href="frontend.html">5. 画面・UI設計</a></li>
+        </ul>
+    </div>
+    <div class="content">
+        <h1>2. システムアーキテクチャ構成</h1>
+        
+        <h2>全体構成図</h2>
+        <pre>
+【自動データ収集バッチ】 (GitHub Actions)
+  │
+  ├─ 1. 企業マスター更新（毎日/月次） ─> 新規上場・廃止・社名変更、決算日の取得
+  ├─ 2. 株価取得バッチ（毎日）        ─> 日次株価・分割調整後株価・ストップ高安の取得 (yfinanceベース)
+  ├─ 3. 優待情報取得（週1回）         ─> 優待新設/廃止の更新
+  └─ 4. JPX信用残高取得（週1回）      ─> 信用買い残・売り残の更新
+  │
+【データストア】 (Supabase PostgreSQL + ローカル同期ファイル)
+  │
+  ├─ ホットデータ: Supabase (日々の画面検索用。過去2年分の株価データを保持)
+  └─ コールドデータ: Parquet/DuckDB形式 (週次で全履歴を圧縮・ローカル分析用に出力。2年超過分はSupabaseから削除)
+  │
+【フロントエンド画面】 (Streamlit Community Cloud)
+  └─ スマホ/PCブラウザからアクセス。Supabase側で重い処理を担い、軽量化されたデータを表示
+        </pre>
+
+        <h2>テクノロジースタック詳細</h2>
+        <table>
+            <tr><th>領域</th><th>採用技術</th><th>選定理由・仕様</th></tr>
+            <tr>
+                <td><strong>フロントエンド</strong></td>
+                <td>Streamlit (Python)</td>
+                <td>Streamlit Community Cloudで無料ホスティング可能。UI構築が素早くモバイル対応も容易。</td>
+            </tr>
+            <tr>
+                <td><strong>データベース</strong></td>
+                <td>Supabase (PostgreSQL)</td>
+                <td>無料枠(約500MB)で本格的なRDBが利用可能。JSONB対応によりスキーマの拡張が容易。</td>
+            </tr>
+            <tr>
+                <td><strong>バッチ処理・自動化</strong></td>
+                <td>GitHub Actions</td>
+                <td>cronによるスケジュール実行が可能。無料枠（月2000分）を活用。エラー時はサイレントにリトライ。</td>
+            </tr>
+            <tr>
+                <td><strong>データ取得 (株価)</strong></td>
+                <td>yfinance (Pythonライブラリ)</td>
+                <td>実装の手軽さ。株式分割調整済みの株価が取得できるため、補正ロジックを省略できる。将来的にJ-Quants等へ切り替え可能な設計とする。</td>
+            </tr>
+            <tr>
+                <td><strong>データ取得 (その他)</strong></td>
+                <td>Requests / BeautifulSoup</td>
+                <td>決算日、優待情報はみんかぶ等のスクレイピングで取得。信用残高はJPX公式CSVを直接ダウンロード。</td>
+            </tr>
+            <tr>
+                <td><strong>通知</strong></td>
+                <td>LINE Messaging API</td>
+                <td>朝7時に前夜のバッチ実行結果サマリーをプッシュ通知する。夜間のエラーは通知しない。</td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>
