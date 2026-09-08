@@ -13,8 +13,17 @@ def init_supabase() -> Client:
     load_dotenv()
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
+    
+    # Streamlit Cloud環境では st.secrets から取得する
+    if not url:
+        try:
+            url = st.secrets["SUPABASE_URL"]
+            key = st.secrets["SUPABASE_KEY"]
+        except Exception:
+            pass
+            
     if not url or not key:
-        st.error("エラー: .env に接続情報がありません")
+        st.error("エラー: 接続情報が見つかりません (Secretsの設定を確認してください)")
         st.stop()
     return create_client(url, key)
 
