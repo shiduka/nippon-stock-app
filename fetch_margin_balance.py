@@ -94,8 +94,8 @@ if __name__ == "__main__":
     print("信用取引残高の取得を開始します (Yahoo!ファイナンス経由)...")
     supabase = get_supabase_client()
     
-    # テストのため今回は上位30銘柄だけを取得
-    target_tickers = get_active_tickers(supabase, limit=30)
+    # 全銘柄を対象に信用残高を取得する
+    target_tickers = get_active_tickers(supabase, limit=None)
     print(f"取得対象: {len(target_tickers)} 銘柄")
     
     data = fetch_margin_balance_yahoo(target_tickers)
