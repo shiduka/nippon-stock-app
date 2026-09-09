@@ -80,7 +80,12 @@ with tab1:
                 else:
                     col2.metric(label="信用倍率", value="データなし", delta="---")
                 
-                col3.metric(label="次回決算 (※準備中)", value="未定", delta_color="off")
+                # 次回決算日の表示 (companiesテーブルから取得済み)
+                earnings_date = company.get('next_earnings_date')
+                if earnings_date:
+                    col3.metric(label="次回決算", value=earnings_date, delta_color="off")
+                else:
+                    col3.metric(label="次回決算", value="未定", delta_color="off")
                 
                 st.markdown("---")
                 st.write("📊 **直近の株価推移**")
