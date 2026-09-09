@@ -38,14 +38,13 @@ st.title("📈 日本株投資先発掘アプリ")
 tab1, tab2, tab3, tab4 = st.tabs(["個別銘柄詳細", "優待スクリーナー", "スマート検索", "システム管理"])
 
 # ==========================================
-# タブ1: 個別銘柄詳細 (✨チャート機能追加！)
+# タブ1: 個別銘柄詳細
 # ==========================================
 with tab1:
     st.subheader("🔍 銘柄の検索・分析")
     search_query = st.text_input("銘柄コードまたは企業名で検索", placeholder="例: 7203 または トヨタ")
     
     if search_query:
-        # Supabaseから企業検索
         query = f"%{search_query}%"
         response = supabase.table("companies").select("*").or_(f"ticker_symbol.ilike.{query},company_name.ilike.{query}").limit(5).execute()
         
@@ -59,21 +58,15 @@ with tab1:
             st.markdown(f"### {ticker}: {company['company_name']}")
             st.markdown(f"**市場:** {company['market']} ｜ **業種:** {company['sector_33']}")
             
-            # --- ✨ 株価データの取得とチャート表示 ---
-            # 降順（新しい順）で直近の株価をDBから取得
             price_res = supabase.table("daily_stock_prices").select("*").eq("ticker_symbol", ticker).order("trade_date", desc=True).limit(100).execute()
             price_data = price_res.data
             
             if price_data:
-                # 最新の日のデータを取り出す
                 latest = price_data[0]
                 latest_close = latest['close_price']
                 price_change = latest['price_change']
-                
-                # 前日比の表示用文字列（プラスなら+、マイナスなら-をつける）
                 delta_str = f"{price_change:+.1f} 円" if price_change else "±0 円"
                 
-                # 数値のハイライト表示
                 col1, col2, col3 = st.columns(3)
                 col1.metric(label=f"直近終値 ({latest['trade_date']})", value=f"{latest_close:,.1f} 円", delta=delta_str)
                 col2.metric(label="信用倍率 (※準備中)", value="--- 倍", delta="---")
@@ -82,10 +75,7 @@ with tab1:
                 st.markdown("---")
                 st.write("📊 **直近の株価推移**")
                 
-                # グラフ描画用に、古い日付順に並び替え
                 df_prices = pd.DataFrame(price_data).sort_values("trade_date")
-                
-                # Plotlyによる美しいローソク足チャートの生成
                 fig = go.Figure(data=[go.Candlestick(
                     x=df_prices['trade_date'],
                     open=df_prices['open_price'],
@@ -94,15 +84,11 @@ with tab1:
                     close=df_prices['close_price'],
                     name="株価"
                 )])
-                # 見やすさのためのレイアウト調整
                 fig.update_layout(xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=10, b=0), height=400)
-                
                 st.plotly_chart(fig, use_container_width=True)
-                
             else:
-                st.warning("この銘柄の株価データはまだ取得されていません。（バッチ実行をお待ちください）")
+                st.warning("この銘柄の株価データはまだ取得されていません。")
             
-            # 他の検索候補
             if len(data) > 1:
                 st.markdown("---")
                 st.markdown("**他の検索候補:**")
@@ -111,16 +97,63 @@ with tab1:
                 st.dataframe(df_others, hide_index=True)
 
 # ==========================================
-# 以下のタブはダミーのまま
+# タブ2: 優待スクリーナー
 # ==========================================
 with tab2:
     st.subheader("🎁 株主優待から探す")
     st.write("※優待バッチ完成後に実装されます")
 
+# ==========================================
+# タブ3: スマート検索 (✨ 今回実装！)
+# ==========================================
 with tab3:
-    st.subheader("⚡ プリセット条件で一発検索")
-    st.write("※株価や信用残高バッチ完成後に実装されます")
+    st.subheader("⚡ スマート・スクリーナー")
+    st.write("データベースに蓄積された最新の株価データを分析し、条件に合う銘柄を一発抽出します。")
+    
+    preset = st.selectbox("検索条件を選択", [
+        "🔥 本日の値上がり額 トップ30",
+        "🌊 本日の出来高 トップ30",
+        "📉 本日の値下がり額 トップ30"
+    ])
+    
+    if st.button("スクリーニング実行"):
+        with st.spinner("データベースでSQLを実行中..."):
+            latest_date_res = supabase.table("daily_stock_prices").select("trade_date").order("trade_date", desc=True).limit(1).execute()
+            
+            if not latest_date_res.data:
+                st.warning("株価データがまだありません。")
+            else:
+                latest_date = latest_date_res.data[0]["trade_date"]
+                st.info(f"基準日: **{latest_date}** のデータでスクリーニングしました！")
+                
+                if preset == "🔥 本日の値上がり額 トップ30":
+                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("price_change", desc=True).limit(30).execute()
+                elif preset == "🌊 本日の出来高 トップ30":
+                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("volume", desc=True).limit(30).execute()
+                elif preset == "📉 本日の値下がり額 トップ30":
+                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("price_change", desc=False).limit(30).execute()
+                
+                stock_data = res.data
+                
+                if stock_data:
+                    df_stocks = pd.DataFrame(stock_data)
+                    tickers = df_stocks["ticker_symbol"].tolist()
+                    comp_res = supabase.table("companies").select("ticker_symbol, company_name, market, sector_33").in_("ticker_symbol", tickers).execute()
+                    df_comps = pd.DataFrame(comp_res.data)
+                    
+                    if not df_comps.empty:
+                        df_merged = pd.merge(df_stocks, df_comps, on="ticker_symbol", how="left")
+                        df_display = df_merged[['ticker_symbol', 'company_name', 'market', 'sector_33', 'close_price', 'price_change', 'volume']]
+                        df_display.columns = ['コード', '銘柄名', '市場', '業種', '終値 (円)', '前日比 (円)', '出来高']
+                        st.dataframe(df_display, hide_index=True, use_container_width=True)
+                    else:
+                        st.warning("企業名データが見つかりませんでした。")
+                else:
+                    st.warning("該当する銘柄が見つかりませんでした。")
 
+# ==========================================
+# タブ4: システム管理
+# ==========================================
 with tab4:
     st.subheader("⚙️ バッチ処理ステータス")
     st.write("※自動化設定後に実装されます")
