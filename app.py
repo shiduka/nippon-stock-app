@@ -42,6 +42,24 @@ tab1, tab2, tab3, tab4 = st.tabs(["個別銘柄詳細", "優待スクリーナ�
 # ==========================================
 with tab1:
     st.subheader("🔍 銘柄の検索・分析")
+    
+    # ==========================================
+    # お気に入り一覧の表示
+    # ==========================================
+    fav_res = supabase.table("favorites").select("ticker_symbol, created_at").order("created_at", desc=True).execute()
+    if fav_res.data:
+        fav_tickers = [f["ticker_symbol"] for f in fav_res.data]
+        fav_comp_res = supabase.table("companies").select("ticker_symbol, company_name").in_("ticker_symbol", fav_tickers).execute()
+        fav_name_map = {c["ticker_symbol"]: c["company_name"] for c in fav_comp_res.data}
+        
+        st.markdown("⭐ **お気に入り銘柄** （クリックで検索欄にコピーしてください）")
+        # お気に入りをボタンとして横並びに表示
+        fav_cols = st.columns(min(len(fav_tickers), 5))
+        for i, t in enumerate(fav_tickers[:10]):
+            name = fav_name_map.get(t, t)
+            fav_cols[i % 5].caption(f"**{t}** {name}")
+        st.markdown("---")
+    
     search_query = st.text_input("銘柄コードまたは企業名で検索", placeholder="例: 7203 または トヨタ")
     
     if search_query:
@@ -55,7 +73,23 @@ with tab1:
             company = data[0]
             ticker = company['ticker_symbol']
             
-            st.markdown(f"### {ticker}: {company['company_name']}")
+            # お気に入り登録/解除ボタン
+            is_fav = supabase.table("favorites").select("id").eq("ticker_symbol", ticker).execute()
+            
+            title_col, btn_col = st.columns([4, 1])
+            title_col.markdown(f"### {ticker}: {company['company_name']}")
+            
+            if is_fav.data:
+                # すでにお気に入り → 解除ボタンを表示
+                if btn_col.button("⭐ 解除", key="fav_remove"):
+                    supabase.table("favorites").delete().eq("ticker_symbol", ticker).execute()
+                    st.rerun()
+            else:
+                # まだお気に入りでない → 追加ボタンを表示
+                if btn_col.button("☆ 追加", key="fav_add"):
+                    supabase.table("favorites").insert({"ticker_symbol": ticker}).execute()
+                    st.rerun()
+            
             st.markdown(f"**市場:** {company['market']} ｜ **業種:** {company['sector_33']}")
             
             price_res = supabase.table("daily_stock_prices").select("*").eq("ticker_symbol", ticker).order("trade_date", desc=True).limit(100).execute()
@@ -74,13 +108,12 @@ with tab1:
                 margin_res = supabase.table("margin_balances").select("*").eq("ticker_symbol", ticker).order("report_date", desc=True).limit(1).execute()
                 if margin_res.data:
                     m_data = margin_res.data[0]
-                    # 倍率がNoneの場合は「計算不可」等にする
                     ratio_str = f"{m_data['margin_ratio']} 倍" if m_data.get('margin_ratio') is not None else "--- 倍"
                     col2.metric(label=f"信用倍率 (基準日:{m_data['report_date']})", value=ratio_str, delta=None)
                 else:
                     col2.metric(label="信用倍率", value="データなし", delta="---")
                 
-                # 次回決算日の表示 (companiesテーブルから取得済み)
+                # 次回決算日の表示
                 earnings_date = company.get('next_earnings_date')
                 if earnings_date:
                     col3.metric(label="次回決算", value=earnings_date, delta_color="off")
