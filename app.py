@@ -100,8 +100,51 @@ with tab1:
 # タブ2: 優待スクリーナー
 # ==========================================
 with tab2:
-    st.subheader("🎁 株主優待から探す")
-    st.write("※優待バッチ完成後に実装されます")
+    st.subheader("🎁 株主優待スクリーナー")
+    st.write("権利確定月を選んで、優待銘柄を検索します。（※現在は代表的な人気銘柄のみ登録されています）")
+    
+    target_month = st.selectbox("権利確定月を選択", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], index=2) # デフォルトは3月
+    
+    if st.button("優待銘柄を検索"):
+        with st.spinner("データベースから優待情報を検索中..."):
+            # 1. 優待テーブルから該当月のデータを取得
+            ben_res = supabase.table("shareholder_benefits").select("*").eq("record_month", target_month).execute()
+            
+            if ben_res.data:
+                df_ben = pd.DataFrame(ben_res.data)
+                tickers = df_ben["ticker_symbol"].tolist()
+                
+                # 2. 企業情報と最新株価を取得して結合
+                comp_res = supabase.table("companies").select("ticker_symbol, company_name").in_("ticker_symbol", tickers).execute()
+                df_comps = pd.DataFrame(comp_res.data)
+                
+                # 最新の株価を取得
+                latest_date_res = supabase.table("daily_stock_prices").select("trade_date").order("trade_date", desc=True).limit(1).execute()
+                if latest_date_res.data:
+                    latest_date = latest_date_res.data[0]["trade_date"]
+                    price_res = supabase.table("daily_stock_prices").select("ticker_symbol, close_price").eq("trade_date", latest_date).in_("ticker_symbol", tickers).execute()
+                    df_prices = pd.DataFrame(price_res.data)
+                else:
+                    df_prices = pd.DataFrame(columns=["ticker_symbol", "close_price"])
+                
+                # 3. すべてのデータを合体
+                df_merged = pd.merge(df_ben, df_comps, on="ticker_symbol", how="left")
+                df_merged = pd.merge(df_merged, df_prices, on="ticker_symbol", how="left")
+                
+                # 4. 「最低投資金額」を計算 (最新の株価 × 最低必要株数)
+                df_merged["investment_amount"] = df_merged["close_price"] * df_merged["min_shares"]
+                
+                # 表示用に整理
+                df_display = df_merged[["ticker_symbol", "company_name", "record_month", "benefit_summary", "min_shares", "investment_amount"]]
+                df_display.columns = ["コード", "銘柄名", "権利月", "優待内容", "最低株数", "最低投資額 (目安)"]
+                
+                # 金額を見やすくフォーマット (例: 150000 -> 約 150,000 円)
+                df_display["最低投資額 (目安)"] = df_display["最低投資額 (目安)"].apply(lambda x: f"約 {int(x):,} 円" if pd.notna(x) else "---")
+                
+                # 表を表示
+                st.dataframe(df_display, hide_index=True, use_container_width=True)
+            else:
+                st.info(f"{target_month}月が権利確定の優待銘柄は見つかりませんでした。")
 
 # ==========================================
 # タブ3: スマート検索 (✨ 今回実装！)
