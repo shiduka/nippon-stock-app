@@ -69,7 +69,17 @@ with tab1:
                 
                 col1, col2, col3 = st.columns(3)
                 col1.metric(label=f"直近終値 ({latest['trade_date']})", value=f"{latest_close:,.1f} 円", delta=delta_str)
-                col2.metric(label="信用倍率 (※準備中)", value="--- 倍", delta="---")
+                
+                # 信用残高データの取得
+                margin_res = supabase.table("margin_balances").select("*").eq("ticker_symbol", ticker).order("report_date", desc=True).limit(1).execute()
+                if margin_res.data:
+                    m_data = margin_res.data[0]
+                    # 倍率がNoneの場合は「計算不可」等にする
+                    ratio_str = f"{m_data['margin_ratio']} 倍" if m_data.get('margin_ratio') is not None else "--- 倍"
+                    col2.metric(label=f"信用倍率 (基準日:{m_data['report_date']})", value=ratio_str, delta=None)
+                else:
+                    col2.metric(label="信用倍率", value="データなし", delta="---")
+                
                 col3.metric(label="次回決算 (※準備中)", value="未定", delta_color="off")
                 
                 st.markdown("---")

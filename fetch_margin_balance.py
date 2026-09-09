@@ -52,7 +52,7 @@ def fetch_margin_balance_yahoo(ticker_list):
                 
             record = {
                 'ticker_symbol': ticker,
-                'report_date': report_date,
+                'report_date': report_date.isoformat(),
                 'margin_buy_volume': buy_vol,
                 'margin_sell_volume': sell_vol,
                 'margin_ratio': margin_ratio
@@ -67,19 +67,41 @@ def fetch_margin_balance_yahoo(ticker_list):
         
     return results
 
+import os
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+def get_supabase_client() -> Client:
+    load_dotenv()
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    if not url or not key:
+        raise ValueError("SUPABASE_URL or SUPABASE_KEY is missing in .env")
+    return create_client(url, key)
+
+def get_active_tickers(supabase: Client, limit: int = None):
+    query = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE")
+    if limit:
+        query = query.limit(limit)
+    res = query.execute()
+    return [row["ticker_symbol"] for row in res.data]
+
 if __name__ == "__main__":
     print("信用取引残高の取得を開始します (Yahoo!ファイナンス経由)...")
+    supabase = get_supabase_client()
     
-    # テスト対象銘柄（トヨタ、ソフトバンクG、三菱UFJ、任天堂）
-    target_tickers = ['7203', '9984', '8306', '7974']
+    # テストのため今回は上位30銘柄だけを取得
+    target_tickers = get_active_tickers(supabase, limit=30)
+    print(f"取得対象: {len(target_tickers)} 銘柄")
     
     data = fetch_margin_balance_yahoo(target_tickers)
     
     if data:
-        df_results = pd.DataFrame(data)
-        print(f"\n取得成功！ 全 {len(df_results)} 銘柄の信用残高を取得しました。")
-        print(f"基準日 (直近の金曜日): {data[0]['report_date']}")
-        print("\n--- 取得結果 ---")
-        print(df_results.to_string(index=False))
+        print("\nSupabaseへの保存を開始します...")
+        try:
+            supabase.table("margin_balances").upsert(data).execute()
+            print(f"✅ 全 {len(data)} 件の信用残高データを保存しました！")
+        except Exception as e:
+            print(f"保存エラー: {e}")
     else:
         print("データが取得できませんでした。")
