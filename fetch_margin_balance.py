@@ -13,7 +13,8 @@ def get_last_friday():
 
 def fetch_margin_balance_yahoo(ticker_list):
     """
-    Yahoo!ファイナンスの各銘柄ページ（信用取引タブ）から信用残高データをスクレイピングする。
+    Yahoo!ファイナンスの各銘柄ページ（信用残時系列）から信用残高データをスクレイピングする。
+    テーブルの列構造: [売残, 買残, 売残増減, 買残増減, 倍率]
     """
     results = []
     report_date = get_last_friday()
@@ -24,43 +25,46 @@ def fetch_margin_balance_yahoo(ticker_list):
     }
     
     for ticker in ticker_list:
-        # Yahooファイナンスの信用取引専用ページ URL
+        # Yahooファイナンスの信用残時系列ページ URL
         url = f"https://finance.yahoo.co.jp/quote/{ticker}.T/margin"
-        print(f"取得中: {ticker} ({url})")
         
         try:
             res = requests.get(url, headers=headers, timeout=10)
             res.raise_for_status()
             html = res.text
             
-            # HTML内から「信用買残」「信用売残」「信用倍率」の付近にある数値を正規表現で抽出
-            # ※WebサイトのUIが変更されると抽出ルールを直す必要があります
-            buy_match = re.search(r'信用買残.*?<span[^>]*>([\d,\.]+)</span>', html)
-            sell_match = re.search(r'信用売残.*?<span[^>]*>([\d,\.]+)</span>', html)
-            ratio_match = re.search(r'信用倍率.*?<span[^>]*>([\d,\.]+)</span>', html)
+            # テーブル行(tr)の中からデータセル(td)の数値を取得する
+            # _StyledNumber__value クラスの span タグに数値が入っている
+            rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
             
-            # 数値への変換（カンマを取り除く）
-            buy_vol = int(buy_match.group(1).replace(',', '')) if buy_match else 0
-            sell_vol = int(sell_match.group(1).replace(',', '')) if sell_match else 0
-            
-            margin_ratio = None
-            if ratio_match:
-                margin_ratio = float(ratio_match.group(1).replace(',', ''))
-            elif sell_vol > 0:
-                # 倍率が見つからない場合は自分で計算する
-                margin_ratio = round(buy_vol / sell_vol, 2)
+            # 最新の1行目だけを取得（テーブルの最初のデータ行）
+            for row in rows:
+                values = re.findall(r'_StyledNumber__value[^>]*>([^<]+)<', row)
+                if len(values) >= 5:
+                    # [売残, 買残, 売残増減, 買残増減, 倍率]
+                    sell_vol_str = values[0].replace(',', '')
+                    buy_vol_str = values[1].replace(',', '')
+                    ratio_str = values[4].replace(',', '')
+                    
+                    sell_vol = int(sell_vol_str)
+                    buy_vol = int(buy_vol_str)
+                    margin_ratio = float(ratio_str)
+                    
+                    record = {
+                        'ticker_symbol': ticker,
+                        'report_date': report_date.isoformat(),
+                        'margin_buy_volume': buy_vol,
+                        'margin_sell_volume': sell_vol,
+                        'margin_ratio': margin_ratio
+                    }
+                    results.append(record)
+                    print(f"  ✅ {ticker}: 売残={sell_vol:,} 買残={buy_vol:,} 倍率={margin_ratio}")
+                    break  # 最新の1行だけ取得したらループを抜ける
+            else:
+                print(f"  ⚠️ {ticker}: 信用残データが見つかりませんでした（非信用銘柄の可能性）")
                 
-            record = {
-                'ticker_symbol': ticker,
-                'report_date': report_date.isoformat(),
-                'margin_buy_volume': buy_vol,
-                'margin_sell_volume': sell_vol,
-                'margin_ratio': margin_ratio
-            }
-            results.append(record)
-            
         except Exception as e:
-            print(f"[{ticker}] 取得エラー: {e}")
+            print(f"  ❌ [{ticker}] 取得エラー: {e}")
             
         # サーバーへの負荷を下げるために1秒待つ（スクレイピングのマナー）
         time.sleep(1)
