@@ -199,48 +199,234 @@ with tab2:
 # ==========================================
 with tab3:
     st.subheader("⚡ スマート・スクリーナー")
-    st.write("データベースに蓄積された最新の株価データを分析し、条件に合う銘柄を一発抽出します。")
+    st.write("データベースに蓄積された最新データを分析し、条件に合う銘柄を一発抽出します。")
+    
+    from datetime import datetime, timedelta
+    from dateutil.relativedelta import relativedelta
     
     preset = st.selectbox("検索条件を選択", [
         "🔥 本日の値上がり額 トップ30",
         "🌊 本日の出来高 トップ30",
-        "📉 本日の値下がり額 トップ30"
+        "📉 本日の値下がり額 トップ30",
+        "🚀 本日のストップ高銘柄",
+        "📅 決算発表が近い銘柄 (1週間以内)",
+        "💹 踏み上げ期待！売り長銘柄 (信用倍率1倍未満)",
+        "💰 5万円以下で買える！少額投資ランキング",
+        "🏭 業種別 値上がりランキング",
+        "🎁 優待先回り買い候補 (3ヶ月後に権利確定)",
+        "🎁 優待先回り買い候補 (6ヶ月後に権利確定)",
     ])
     
+    # 業種別の場合はセクター選択を表示
+    selected_sector = None
+    if preset == "🏭 業種別 値上がりランキング":
+        sector_res = supabase.table("companies").select("sector_33").execute()
+        sectors = sorted(set(r["sector_33"] for r in sector_res.data if r.get("sector_33")))
+        selected_sector = st.selectbox("業種を選択", sectors)
+    
     if st.button("スクリーニング実行"):
-        with st.spinner("データベースでSQLを実行中..."):
+        with st.spinner("データベースでスクリーニング中..."):
             latest_date_res = supabase.table("daily_stock_prices").select("trade_date").order("trade_date", desc=True).limit(1).execute()
             
             if not latest_date_res.data:
                 st.warning("株価データがまだありません。")
             else:
                 latest_date = latest_date_res.data[0]["trade_date"]
-                st.info(f"基準日: **{latest_date}** のデータでスクリーニングしました！")
                 
-                if preset == "🔥 本日の値上がり額 トップ30":
-                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("price_change", desc=True).limit(30).execute()
-                elif preset == "🌊 本日の出来高 トップ30":
-                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("volume", desc=True).limit(30).execute()
-                elif preset == "📉 本日の値下がり額 トップ30":
-                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("price_change", desc=False).limit(30).execute()
-                
-                stock_data = res.data
-                
-                if stock_data:
-                    df_stocks = pd.DataFrame(stock_data)
-                    tickers = df_stocks["ticker_symbol"].tolist()
-                    comp_res = supabase.table("companies").select("ticker_symbol, company_name, market, sector_33").in_("ticker_symbol", tickers).execute()
-                    df_comps = pd.DataFrame(comp_res.data)
+                # ==========================================
+                # 既存の3条件: 値上がり / 出来高 / 値下がり
+                # ==========================================
+                if preset in ["🔥 本日の値上がり額 トップ30", "🌊 本日の出来高 トップ30", "📉 本日の値下がり額 トップ30"]:
+                    st.info(f"基準日: **{latest_date}** のデータでスクリーニングしました！")
                     
-                    if not df_comps.empty:
-                        df_merged = pd.merge(df_stocks, df_comps, on="ticker_symbol", how="left")
-                        df_display = df_merged[['ticker_symbol', 'company_name', 'market', 'sector_33', 'close_price', 'price_change', 'volume']]
-                        df_display.columns = ['コード', '銘柄名', '市場', '業種', '終値 (円)', '前日比 (円)', '出来高']
+                    if preset == "🔥 本日の値上がり額 トップ30":
+                        res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("price_change", desc=True).limit(30).execute()
+                    elif preset == "🌊 本日の出来高 トップ30":
+                        res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("volume", desc=True).limit(30).execute()
+                    else:
+                        res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("price_change", desc=False).limit(30).execute()
+                    
+                    stock_data = res.data
+                    if stock_data:
+                        df_stocks = pd.DataFrame(stock_data)
+                        tickers = df_stocks["ticker_symbol"].tolist()
+                        comp_res = supabase.table("companies").select("ticker_symbol, company_name, market, sector_33").in_("ticker_symbol", tickers).execute()
+                        df_comps = pd.DataFrame(comp_res.data)
+                        if not df_comps.empty:
+                            df_merged = pd.merge(df_stocks, df_comps, on="ticker_symbol", how="left")
+                            df_display = df_merged[['ticker_symbol', 'company_name', 'market', 'sector_33', 'close_price', 'price_change', 'volume']]
+                            df_display.columns = ['コード', '銘柄名', '市場', '業種', '終値 (円)', '前日比 (円)', '出来高']
+                            st.dataframe(df_display, hide_index=True, use_container_width=True)
+                
+                # ==========================================
+                # ストップ高銘柄
+                # ==========================================
+                elif preset == "🚀 本日のストップ高銘柄":
+                    st.info(f"基準日: **{latest_date}**")
+                    # ストップ高フラグがまだ設定されていない場合は、値上がり率が大きい銘柄で代用
+                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).order("price_change", desc=True).limit(100).execute()
+                    
+                    if res.data:
+                        df_stocks = pd.DataFrame(res.data)
+                        # 値上がり率を計算して上位を抽出（前日終値 = 終値 - 前日比）
+                        df_stocks["prev_close"] = df_stocks["close_price"] - df_stocks["price_change"]
+                        df_stocks["change_pct"] = (df_stocks["price_change"] / df_stocks["prev_close"] * 100).round(2)
+                        # 値上がり率15%以上をストップ高相当として抽出
+                        df_stop_high = df_stocks[df_stocks["change_pct"] >= 15.0]
+                        
+                        if df_stop_high.empty:
+                            st.info("本日のストップ高銘柄はありませんでした。（値上がり率15%以上で判定）")
+                        else:
+                            tickers = df_stop_high["ticker_symbol"].tolist()
+                            comp_res = supabase.table("companies").select("ticker_symbol, company_name, market, sector_33").in_("ticker_symbol", tickers).execute()
+                            df_comps = pd.DataFrame(comp_res.data)
+                            df_merged = pd.merge(df_stop_high, df_comps, on="ticker_symbol", how="left")
+                            df_display = df_merged[['ticker_symbol', 'company_name', 'sector_33', 'close_price', 'price_change', 'change_pct', 'volume']]
+                            df_display.columns = ['コード', '銘柄名', '業種', '終値 (円)', '前日比 (円)', '値上がり率 (%)', '出来高']
+                            st.success(f"🚀 ストップ高相当（+15%以上）: **{len(df_display)}銘柄**")
+                            st.dataframe(df_display, hide_index=True, use_container_width=True)
+                
+                # ==========================================
+                # 決算発表が近い銘柄
+                # ==========================================
+                elif preset == "📅 決算発表が近い銘柄 (1週間以内)":
+                    today = datetime.now().date()
+                    one_week_later = today + timedelta(days=7)
+                    
+                    comp_res = supabase.table("companies").select("ticker_symbol, company_name, market, sector_33, next_earnings_date").gte("next_earnings_date", today.isoformat()).lte("next_earnings_date", one_week_later.isoformat()).order("next_earnings_date", desc=False).execute()
+                    
+                    if comp_res.data:
+                        df_comps = pd.DataFrame(comp_res.data)
+                        tickers = df_comps["ticker_symbol"].tolist()
+                        
+                        # 最新株価を取得
+                        price_res = supabase.table("daily_stock_prices").select("ticker_symbol, close_price, price_change").eq("trade_date", latest_date).in_("ticker_symbol", tickers).execute()
+                        df_prices = pd.DataFrame(price_res.data) if price_res.data else pd.DataFrame(columns=["ticker_symbol", "close_price", "price_change"])
+                        
+                        df_merged = pd.merge(df_comps, df_prices, on="ticker_symbol", how="left")
+                        df_display = df_merged[['ticker_symbol', 'company_name', 'sector_33', 'next_earnings_date', 'close_price', 'price_change']]
+                        df_display.columns = ['コード', '銘柄名', '業種', '次回決算日', '終値 (円)', '前日比 (円)']
+                        
+                        st.success(f"📅 1週間以内に決算発表: **{len(df_display)}銘柄**")
                         st.dataframe(df_display, hide_index=True, use_container_width=True)
                     else:
-                        st.warning("企業名データが見つかりませんでした。")
-                else:
-                    st.warning("該当する銘柄が見つかりませんでした。")
+                        st.info("1週間以内に決算発表が予定されている銘柄は見つかりませんでした。")
+                
+                # ==========================================
+                # 売り長銘柄 (信用倍率1倍未満)
+                # ==========================================
+                elif preset == "💹 踏み上げ期待！売り長銘柄 (信用倍率1倍未満)":
+                    margin_res = supabase.table("margin_balances").select("*").lt("margin_ratio", 1.0).order("margin_ratio", desc=False).limit(50).execute()
+                    
+                    if margin_res.data:
+                        df_margin = pd.DataFrame(margin_res.data)
+                        # 各銘柄の最新データだけを残す
+                        df_margin = df_margin.sort_values("report_date", ascending=False).drop_duplicates(subset="ticker_symbol", keep="first")
+                        tickers = df_margin["ticker_symbol"].tolist()
+                        
+                        comp_res = supabase.table("companies").select("ticker_symbol, company_name, sector_33").in_("ticker_symbol", tickers).execute()
+                        df_comps = pd.DataFrame(comp_res.data)
+                        
+                        price_res = supabase.table("daily_stock_prices").select("ticker_symbol, close_price, volume").eq("trade_date", latest_date).in_("ticker_symbol", tickers).execute()
+                        df_prices = pd.DataFrame(price_res.data) if price_res.data else pd.DataFrame(columns=["ticker_symbol", "close_price", "volume"])
+                        
+                        df_merged = pd.merge(df_margin, df_comps, on="ticker_symbol", how="left")
+                        df_merged = pd.merge(df_merged, df_prices, on="ticker_symbol", how="left")
+                        df_merged = df_merged.sort_values("margin_ratio", ascending=True)
+                        
+                        df_display = df_merged[['ticker_symbol', 'company_name', 'sector_33', 'margin_ratio', 'margin_sell_volume', 'margin_buy_volume', 'close_price']]
+                        df_display.columns = ['コード', '銘柄名', '業種', '信用倍率', '売残', '買残', '終値 (円)']
+                        
+                        st.success(f"💹 売り長銘柄 (倍率1倍未満): **{len(df_display)}銘柄**")
+                        st.caption("信用倍率が1倍未満 ＝ 売り残が買い残を上回っている状態。株価上昇時に空売りの買い戻しが入り、さらに上がりやすい（踏み上げ相場）傾向があります。")
+                        st.dataframe(df_display, hide_index=True, use_container_width=True)
+                    else:
+                        st.info("信用倍率1倍未満の銘柄は見つかりませんでした。")
+                
+                # ==========================================
+                # 5万円以下で買える少額投資ランキング
+                # ==========================================
+                elif preset == "💰 5万円以下で買える！少額投資ランキング":
+                    st.info(f"基準日: **{latest_date}** ｜ 株価500円以下 × 100株 = 投資額5万円以下")
+                    # 株価500円以下で出来高が多い銘柄
+                    res = supabase.table("daily_stock_prices").select("*").eq("trade_date", latest_date).lte("close_price", 500).order("volume", desc=True).limit(30).execute()
+                    
+                    if res.data:
+                        df_stocks = pd.DataFrame(res.data)
+                        df_stocks["investment"] = (df_stocks["close_price"] * 100).astype(int)
+                        tickers = df_stocks["ticker_symbol"].tolist()
+                        
+                        comp_res = supabase.table("companies").select("ticker_symbol, company_name, sector_33").in_("ticker_symbol", tickers).execute()
+                        df_comps = pd.DataFrame(comp_res.data)
+                        df_merged = pd.merge(df_stocks, df_comps, on="ticker_symbol", how="left")
+                        
+                        df_display = df_merged[['ticker_symbol', 'company_name', 'sector_33', 'close_price', 'investment', 'price_change', 'volume']]
+                        df_display.columns = ['コード', '銘柄名', '業種', '終値 (円)', '100株購入額 (円)', '前日比 (円)', '出来高']
+                        st.dataframe(df_display, hide_index=True, use_container_width=True)
+                    else:
+                        st.info("該当する銘柄が見つかりませんでした。")
+                
+                # ==========================================
+                # 業種別 値上がりランキング
+                # ==========================================
+                elif preset == "🏭 業種別 値上がりランキング":
+                    if selected_sector:
+                        st.info(f"基準日: **{latest_date}** ｜ 業種: **{selected_sector}**")
+                        # 該当業種の銘柄コードを取得
+                        sector_comp_res = supabase.table("companies").select("ticker_symbol, company_name").eq("sector_33", selected_sector).execute()
+                        
+                        if sector_comp_res.data:
+                            sector_tickers = [r["ticker_symbol"] for r in sector_comp_res.data]
+                            df_comps = pd.DataFrame(sector_comp_res.data)
+                            
+                            # 最新株価を取得
+                            price_res = supabase.table("daily_stock_prices").select("ticker_symbol, close_price, price_change, volume").eq("trade_date", latest_date).in_("ticker_symbol", sector_tickers[:100]).execute()
+                            
+                            if price_res.data:
+                                df_prices = pd.DataFrame(price_res.data)
+                                df_merged = pd.merge(df_prices, df_comps, on="ticker_symbol", how="left")
+                                df_merged = df_merged.sort_values("price_change", ascending=False).head(30)
+                                
+                                df_display = df_merged[['ticker_symbol', 'company_name', 'close_price', 'price_change', 'volume']]
+                                df_display.columns = ['コード', '銘柄名', '終値 (円)', '前日比 (円)', '出来高']
+                                st.dataframe(df_display, hide_index=True, use_container_width=True)
+                
+                # ==========================================
+                # 優待先回り買い候補
+                # ==========================================
+                elif "優待先回り" in preset:
+                    today = datetime.now().date()
+                    months_ahead = 3 if "3ヶ月後" in preset else 6
+                    target_date = today + relativedelta(months=months_ahead)
+                    target_month = target_date.month
+                    
+                    st.info(f"今日から約{months_ahead}ヶ月後 = **{target_date.year}年{target_month}月** が権利確定の優待銘柄を検索します")
+                    
+                    # 該当月の優待銘柄を検索
+                    ben_res = supabase.table("shareholder_benefits").select("*").eq("record_month", target_month).execute()
+                    
+                    if ben_res.data:
+                        df_ben = pd.DataFrame(ben_res.data)
+                        tickers = df_ben["ticker_symbol"].tolist()
+                        
+                        comp_res = supabase.table("companies").select("ticker_symbol, company_name, sector_33").in_("ticker_symbol", tickers).execute()
+                        df_comps = pd.DataFrame(comp_res.data)
+                        
+                        price_res = supabase.table("daily_stock_prices").select("ticker_symbol, close_price, price_change").eq("trade_date", latest_date).in_("ticker_symbol", tickers).execute()
+                        df_prices = pd.DataFrame(price_res.data) if price_res.data else pd.DataFrame(columns=["ticker_symbol", "close_price", "price_change"])
+                        
+                        df_merged = pd.merge(df_ben, df_comps, on="ticker_symbol", how="left")
+                        df_merged = pd.merge(df_merged, df_prices, on="ticker_symbol", how="left")
+                        df_merged["investment"] = (df_merged["close_price"] * df_merged["min_shares"]).apply(lambda x: f"約 {int(x):,} 円" if pd.notna(x) else "---")
+                        
+                        df_display = df_merged[['ticker_symbol', 'company_name', 'sector_33', 'record_month', 'benefit_summary', 'close_price', 'investment']]
+                        df_display.columns = ['コード', '銘柄名', '業種', '権利月', '優待内容', '現在株価 (円)', '最低投資額']
+                        
+                        st.success(f"🎁 {target_month}月に優待権利確定: **{len(df_display)}銘柄** — 今が仕込み時！")
+                        st.caption(f"優待権利確定の{months_ahead}ヶ月前から株価が上昇する傾向があります。早めの購入検討にお役立てください。")
+                        st.dataframe(df_display, hide_index=True, use_container_width=True)
+                    else:
+                        st.info(f"{target_month}月が権利確定の優待銘柄は見つかりませんでした。")
 
 # ==========================================
 # タブ4: システム管理

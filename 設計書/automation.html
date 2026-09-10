@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自動化バッチ処理一覧 - 日本株投資先発掘アプリ</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85rem; font-weight: bold; }
+        .status-active { background-color: #d4edda; color: #155724; }
+        .status-weekly { background-color: #cce5ff; color: #004085; }
+        .status-monthly { background-color: #fff3cd; color: #856404; }
+        .batch-card { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .batch-card h3 { margin-top: 0; border: none; padding: 0; }
+        .batch-card .meta { color: #666; font-size: 0.9rem; margin-bottom: 10px; }
+        .diagram { background: #2c3e50; color: #ecf0f1; padding: 25px; border-radius: 8px; font-family: monospace; line-height: 2; margin: 20px 0; }
+        .diagram .arrow { color: #3498db; }
+        .diagram .source { color: #e74c3c; }
+        .diagram .db { color: #2ecc71; }
+        .diagram .app { color: #f1c40f; }
+        .summary-table tr:nth-child(even) { background-color: #f2f2f2; }
+        .summary-table th { background-color: #2c3e50; color: white; }
+        .file-link { font-family: monospace; background: #e8f4f8; padding: 2px 8px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <nav class="sidebar">
+        <h2>📈 投資アプリ設計書</h2>
+        <ul>
+            <li><a href="index.html">トップページ</a></li>
+            <li><a href="architecture.html">システム構成</a></li>
+            <li><a href="database.html">データベース定義</a></li>
+            <li><a href="batch_processing.html">バッチ処理設計</a></li>
+            <li><a href="automation.html" class="active">⚡ 自動化一覧</a></li>
+            <li><a href="frontend.html">フロントエンド仕様</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <h1>⚡ 自動化バッチ処理一覧</h1>
+        <p>本アプリでは、GitHub Actions を利用して各種データ取得バッチを完全自動化しています。<br>
+        すべてのバッチは <strong>GitHub リポジトリ</strong> の <code>.github/workflows/</code> ディレクトリに YAML ファイルとして定義されています。</p>
+
+        <h2>全体フロー図</h2>
+        <div class="diagram">
+            <span class="source">📡 Yahoo!ファイナンス / yfinance</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">│</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">▼</span> &nbsp;GitHub Actions (クラウド上で自動実行)<br>
+            <span class="source">┌──────────────────────────────────────────────┐</span><br>
+            <span class="source">│</span> 📊 株価取得 &nbsp;│ 💹 信用残高 &nbsp;│ 📅 決算日 &nbsp;│ 🎁 優待 <span class="source">│</span><br>
+            <span class="source">└──────────────────────────────────────────────┘</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">│</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">▼</span><br>
+            <span class="db">🗄️ Supabase (PostgreSQL データベース)</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">│</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">▼</span><br>
+            <span class="app">📱 Streamlit アプリ (スマホ / PC からアクセス)</span>
+        </div>
+
+        <h2>バッチ処理サマリー</h2>
+        <table class="summary-table">
+            <thead>
+                <tr>
+                    <th>バッチ名</th>
+                    <th>実行頻度</th>
+                    <th>実行時刻 (JST)</th>
+                    <th>対象件数</th>
+                    <th>所要時間 (目安)</th>
+                    <th>データソース</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>📊 Daily Stock Price</strong></td>
+                    <td><span class="status-badge status-active">毎日 (平日)</span></td>
+                    <td>18:00</td>
+                    <td>約3,900社</td>
+                    <td>約1〜2時間</td>
+                    <td>yfinance API</td>
+                </tr>
+                <tr>
+                    <td><strong>💹 Weekly Margin Balance</strong></td>
+                    <td><span class="status-badge status-weekly">毎週火曜</span></td>
+                    <td>21:00</td>
+                    <td>約3,900社</td>
+                    <td>約1時間</td>
+                    <td>Yahoo!ファイナンス (HTML)</td>
+                </tr>
+                <tr>
+                    <td><strong>📅 Monthly Earnings Date</strong></td>
+                    <td><span class="status-badge status-monthly">毎月1日</span></td>
+                    <td>20:00</td>
+                    <td>約3,900社</td>
+                    <td>約30分〜1時間</td>
+                    <td>yfinance API</td>
+                </tr>
+                <tr>
+                    <td><strong>🎁 Monthly Benefits</strong></td>
+                    <td><span class="status-badge status-monthly">毎月15日</span></td>
+                    <td>20:00</td>
+                    <td>約3,900社</td>
+                    <td>約1時間</td>
+                    <td>Yahoo!ファイナンス (HTML)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>各バッチの詳細</h2>
+
+        <!-- バッチ1: 株価 -->
+        <div class="batch-card">
+            <h3>📊 Daily Stock Price Batch（日次株価取得）</h3>
+            <div class="meta">
+                ワークフロー: <span class="file-link">.github/workflows/daily_stock_batch.yml</span><br>
+                スクリプト: <span class="file-link">fetch_stock_prices.py</span>
+            </div>
+            <table>
+                <tr><th>項目</th><th>内容</th></tr>
+                <tr><td>スケジュール</td><td><code>cron: '0 9 * * 1-5'</code>（UTC 09:00 = JST 18:00、平日のみ）</td></tr>
+                <tr><td>データソース</td><td>yfinance（Yahoo! Finance グローバルAPI）</td></tr>
+                <tr><td>保存先テーブル</td><td><code>daily_stock_prices</code></td></tr>
+                <tr><td>保存方式</td><td>UPSERT（既存データがあれば上書き更新）</td></tr>
+                <tr><td>取得項目</td><td>始値, 高値, 安値, 終値, 調整後終値, 出来高, 前日比</td></tr>
+            </table>
+            <div class="note">💡 東京証券取引所の取引終了後（15:30以降）に実行されるため、その日の確定した終値を取得できます。</div>
+        </div>
+
+        <!-- バッチ2: 信用残高 -->
+        <div class="batch-card">
+            <h3>💹 Weekly Margin Balance Batch（週次信用残高取得）</h3>
+            <div class="meta">
+                ワークフロー: <span class="file-link">.github/workflows/weekly_margin_batch.yml</span><br>
+                スクリプト: <span class="file-link">fetch_margin_balance.py</span>
+            </div>
+            <table>
+                <tr><th>項目</th><th>内容</th></tr>
+                <tr><td>スケジュール</td><td><code>cron: '0 12 * * 2'</code>（UTC 12:00 = JST 21:00、毎週火曜日）</td></tr>
+                <tr><td>データソース</td><td>Yahoo!ファイナンス 信用残時系列ページ（HTMLスクレイピング）</td></tr>
+                <tr><td>保存先テーブル</td><td><code>margin_balances</code></td></tr>
+                <tr><td>保存方式</td><td>UPSERT（ticker_symbol + report_date で重複判定）</td></tr>
+                <tr><td>取得項目</td><td>売残, 買残, 信用倍率</td></tr>
+            </table>
+            <div class="note">💡 信用残高データは金曜日時点の数値が翌週火曜日に公開されるため、火曜夜に取得します。</div>
+            <div class="warning">⚠️ HTMLスクレイピングのため、Yahoo!ファイナンスのUI変更時にはスクリプトの修正が必要になる場合があります。</div>
+        </div>
+
+        <!-- バッチ3: 決算日 -->
+        <div class="batch-card">
+            <h3>📅 Monthly Earnings Date Batch（月次決算日取得）</h3>
+            <div class="meta">
+                ワークフロー: <span class="file-link">.github/workflows/monthly_earnings_batch.yml</span><br>
+                スクリプト: <span class="file-link">fetch_earnings_dates.py</span>
+            </div>
+            <table>
+                <tr><th>項目</th><th>内容</th></tr>
+                <tr><td>スケジュール</td><td><code>cron: '0 11 1 * *'</code>（UTC 11:00 = JST 20:00、毎月1日）</td></tr>
+                <tr><td>データソース</td><td>yfinance calendar プロパティ</td></tr>
+                <tr><td>保存先テーブル</td><td><code>companies</code>（next_earnings_date カラムを UPDATE）</td></tr>
+                <tr><td>保存方式</td><td>UPDATE（企業マスターの該当カラムのみ更新）</td></tr>
+                <tr><td>取得項目</td><td>次回決算発表予定日</td></tr>
+            </table>
+            <div class="note">💡 決算日は頻繁には変わらないため、月1回の取得で十分です。</div>
+        </div>
+
+        <!-- バッチ4: 株主優待 -->
+        <div class="batch-card">
+            <h3>🎁 Monthly Benefits Batch（月次株主優待取得）</h3>
+            <div class="meta">
+                ワークフロー: <span class="file-link">.github/workflows/monthly_benefits_batch.yml</span><br>
+                スクリプト: <span class="file-link">fetch_benefits.py</span>
+            </div>
+            <table>
+                <tr><th>項目</th><th>内容</th></tr>
+                <tr><td>スケジュール</td><td><code>cron: '0 11 15 * *'</code>（UTC 11:00 = JST 20:00、毎月15日）</td></tr>
+                <tr><td>データソース</td><td>Yahoo!ファイナンス 株主優待ページ（HTMLスクレイピング）</td></tr>
+                <tr><td>保存先テーブル</td><td><code>shareholder_benefits</code></td></tr>
+                <tr><td>保存方式</td><td>DELETE → INSERT（全件洗い替え）</td></tr>
+                <tr><td>取得項目</td><td>権利確定月, 最低必要株数, 優待内容の要約</td></tr>
+            </table>
+            <div class="note">💡 優待の新設・廃止を反映するため、毎回全件を洗い替えて最新化します。</div>
+            <div class="warning">⚠️ HTMLスクレイピングのため、Yahoo!ファイナンスのUI変更時にはスクリプトの修正が必要になる場合があります。</div>
+        </div>
+
+        <h2>GitHub Secrets（環境変数）</h2>
+        <p>各バッチが Supabase に接続するために、以下の2つの Secret が GitHub リポジトリに登録されています。</p>
+        <table>
+            <tr><th>Secret 名</th><th>用途</th><th>設定場所</th></tr>
+            <tr><td><code>SUPABASE_URL</code></td><td>Supabase プロジェクトの API URL</td><td>Settings → Secrets → Actions</td></tr>
+            <tr><td><code>SUPABASE_KEY</code></td><td>Supabase の公開 API キー（anon key）</td><td>Settings → Secrets → Actions</td></tr>
+        </table>
+
+        <h2>手動実行方法</h2>
+        <p>各バッチはスケジュール実行のほか、いつでも手動で実行できます。</p>
+        <ol>
+            <li>GitHub リポジトリの <strong>「Actions」</strong> タブを開く</li>
+            <li>左メニューから実行したいバッチ名を選択</li>
+            <li>右側の <strong>「Run workflow」</strong> ボタンをクリック</li>
+            <li>緑色の「Run workflow」ボタンで実行開始</li>
+        </ol>
+        <div class="note">💡 黄色い丸（処理中）→ 緑色のチェック（成功）/ 赤色のバツ（失敗）で結果を確認できます。</div>
+
+        <h2>トラブルシューティング</h2>
+        <table>
+            <tr><th>症状</th><th>原因</th><th>対処法</th></tr>
+            <tr>
+                <td>バッチが指定時刻に動かない</td>
+                <td>GitHub Actions の cron は世界中のジョブが集中するため、最大1時間遅延することがある</td>
+                <td>急ぎの場合は手動実行で対応</td>
+            </tr>
+            <tr>
+                <td>500 Server Error（一部銘柄）</td>
+                <td>信用取引非対象銘柄や優待未実施銘柄でYahoo側がエラーを返す</td>
+                <td>正常動作。該当銘柄はスキップされ、次の銘柄に自動で進む</td>
+            </tr>
+            <tr>
+                <td>possibly delisted（一部銘柄）</td>
+                <td>上場廃止済み or yfinance にデータがない銘柄</td>
+                <td>正常動作。該当銘柄はスキップされる</td>
+            </tr>
+            <tr>
+                <td>スクレイピングで全件0件取得</td>
+                <td>Yahoo!ファイナンスの HTML 構造が変更された可能性</td>
+                <td>スクリプト内の正規表現パターンを修正する必要あり</td>
+            </tr>
+        </table>
+
+        <hr>
+        <p style="color: #999; font-size: 0.85rem;">最終更新: 2026年9月9日 ｜ 日本株投資先発掘アプリ 設計書</p>
+    </main>
+</body>
+</html>
