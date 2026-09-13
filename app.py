@@ -101,24 +101,31 @@ with tab1:
                 price_change = latest['price_change']
                 delta_str = f"{price_change:+.1f} 円" if price_change else "±0 円"
                 
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 col1.metric(label=f"直近終値 ({latest['trade_date']})", value=f"{latest_close:,.1f} 円", delta=delta_str)
+                
+                # 配当利回りの表示
+                div_yield = company.get('dividend_yield')
+                if div_yield and div_yield > 0:
+                    col2.metric(label="配当利回り", value=f"{div_yield:.2f} %", delta_color="off")
+                else:
+                    col2.metric(label="配当利回り", value="無配 / 未取得", delta_color="off")
                 
                 # 信用残高データの取得
                 margin_res = supabase.table("margin_balances").select("*").eq("ticker_symbol", ticker).order("report_date", desc=True).limit(1).execute()
                 if margin_res.data:
                     m_data = margin_res.data[0]
                     ratio_str = f"{m_data['margin_ratio']} 倍" if m_data.get('margin_ratio') is not None else "--- 倍"
-                    col2.metric(label=f"信用倍率 (基準日:{m_data['report_date']})", value=ratio_str, delta=None)
+                    col3.metric(label=f"信用倍率 ({m_data['report_date']})", value=ratio_str, delta=None)
                 else:
-                    col2.metric(label="信用倍率", value="データなし", delta="---")
+                    col3.metric(label="信用倍率", value="データなし", delta="---")
                 
                 # 次回決算日の表示
                 earnings_date = company.get('next_earnings_date')
                 if earnings_date:
-                    col3.metric(label="次回決算", value=earnings_date, delta_color="off")
+                    col4.metric(label="次回決算", value=earnings_date, delta_color="off")
                 else:
-                    col3.metric(label="次回決算", value="未定", delta_color="off")
+                    col4.metric(label="次回決算", value="未定", delta_color="off")
                 
                 st.markdown("---")
                 st.write("📊 **直近の株価推移**")
