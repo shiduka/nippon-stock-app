@@ -439,5 +439,101 @@ with tab3:
 # タブ4: システム管理
 # ==========================================
 with tab4:
-    st.subheader("⚙️ バッチ処理ステータス")
-    st.write("※自動化設定後に実装されます")
+    st.subheader("⚙️ システム管理ダッシュボード")
+    
+    # ==========================================
+    # データベース状態の確認
+    # ==========================================
+    st.markdown("### 🗄️ データベース状態")
+    
+    with st.spinner("データベースの状態を確認中..."):
+        # 各テーブルの件数を取得
+        companies_res = supabase.table("companies").select("ticker_symbol", count="exact").execute()
+        active_res = supabase.table("companies").select("ticker_symbol", count="exact").eq("status", "ACTIVE").execute()
+        prices_res = supabase.table("daily_stock_prices").select("ticker_symbol", count="exact").execute()
+        margin_res = supabase.table("margin_balances").select("ticker_symbol", count="exact").execute()
+        benefits_res = supabase.table("shareholder_benefits").select("benefit_id", count="exact").execute()
+        favorites_res = supabase.table("favorites").select("id", count="exact").execute()
+        
+        # メトリクスカードで表示
+        m1, m2, m3 = st.columns(3)
+        m1.metric("📋 登録企業数", f"{companies_res.count:,} 社")
+        m2.metric("✅ アクティブ企業数", f"{active_res.count:,} 社")
+        m3.metric("⭐ お気に入り", f"{favorites_res.count:,} 銘柄")
+        
+        m4, m5, m6 = st.columns(3)
+        m4.metric("📊 株価レコード数", f"{prices_res.count:,} 件")
+        m5.metric("💹 信用残高レコード数", f"{margin_res.count:,} 件")
+        m6.metric("🎁 優待レコード数", f"{benefits_res.count:,} 件")
+    
+    st.markdown("---")
+    
+    # ==========================================
+    # データ鮮度の確認
+    # ==========================================
+    st.markdown("### 📅 データ鮮度 (最新更新日)")
+    
+    with st.spinner("データの鮮度を確認中..."):
+        freshness_data = []
+        
+        # 株価の最新日
+        latest_price = supabase.table("daily_stock_prices").select("trade_date").order("trade_date", desc=True).limit(1).execute()
+        freshness_data.append({
+            "データ": "📊 日次株価",
+            "最新日": latest_price.data[0]["trade_date"] if latest_price.data else "データなし",
+            "更新頻度": "毎日 (平日18:00)"
+        })
+        
+        # 信用残高の最新日
+        latest_margin = supabase.table("margin_balances").select("report_date").order("report_date", desc=True).limit(1).execute()
+        freshness_data.append({
+            "データ": "💹 信用残高",
+            "最新日": latest_margin.data[0]["report_date"] if latest_margin.data else "データなし",
+            "更新頻度": "毎週火曜 (21:00)"
+        })
+        
+        # 決算日の登録状況
+        earnings_count = supabase.table("companies").select("ticker_symbol", count="exact").not_.is_("next_earnings_date", "null").execute()
+        freshness_data.append({
+            "データ": "📅 次回決算日",
+            "最新日": f"{earnings_count.count:,} 社に登録済み",
+            "更新頻度": "毎月1日 (20:00)"
+        })
+        
+        # 配当利回りの登録状況
+        dividend_count = supabase.table("companies").select("ticker_symbol", count="exact").gt("dividend_yield", 0).execute()
+        freshness_data.append({
+            "データ": "💰 配当利回り",
+            "最新日": f"{dividend_count.count:,} 社に登録済み",
+            "更新頻度": "毎月1日 (21:00)"
+        })
+        
+        # 優待データ
+        freshness_data.append({
+            "データ": "🎁 株主優待",
+            "最新日": f"{benefits_res.count:,} 件登録済み",
+            "更新頻度": "毎月15日 (20:00)"
+        })
+        
+        df_freshness = pd.DataFrame(freshness_data)
+        st.dataframe(df_freshness, hide_index=True, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # ==========================================
+    # バッチスケジュール一覧
+    # ==========================================
+    st.markdown("### 🔄 自動バッチスケジュール")
+    
+    batch_data = [
+        {"バッチ名": "📊 Daily Stock Price", "スケジュール": "平日 18:00 (JST)", "スクリプト": "fetch_stock_prices.py", "対象": "全銘柄の株価"},
+        {"バッチ名": "💹 Weekly Margin Balance", "スケジュール": "毎週火曜 21:00 (JST)", "スクリプト": "fetch_margin_balance.py", "対象": "全銘柄の信用残高"},
+        {"バッチ名": "📅 Monthly Earnings Date", "スケジュール": "毎月1日 20:00 (JST)", "スクリプト": "fetch_earnings_dates.py", "対象": "全銘柄の決算日"},
+        {"バッチ名": "💰 Monthly Dividend Yield", "スケジュール": "毎月1日 21:00 (JST)", "スクリプト": "fetch_dividend_yields.py", "対象": "全銘柄の配当利回り"},
+        {"バッチ名": "🎁 Monthly Benefits", "スケジュール": "毎月15日 20:00 (JST)", "スクリプト": "fetch_benefits.py", "対象": "全銘柄の株主優待"},
+    ]
+    
+    df_batch = pd.DataFrame(batch_data)
+    st.dataframe(df_batch, hide_index=True, use_container_width=True)
+    
+    st.caption("💡 各バッチはGitHub Actionsで自動実行されます。手動実行はGitHubリポジトリの「Actions」タブから行えます。")
