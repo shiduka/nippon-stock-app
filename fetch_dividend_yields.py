@@ -16,11 +16,30 @@ def get_supabase_client() -> Client:
 
 def get_active_tickers(supabase: Client, limit: int = None):
     """アクティブな銘柄コードの一覧をDBから取得する"""
-    query = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE")
-    if limit:
-        query = query.limit(limit)
-    res = query.execute()
-    return [row["ticker_symbol"] for row in res.data]
+    tickers = []
+    page_size = 1000
+    start = 0
+    
+    while True:
+        query = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE")
+        query = query.range(start, start + page_size - 1)
+        res = query.execute()
+        
+        if not res.data:
+            break
+            
+        tickers.extend([row["ticker_symbol"] for row in res.data])
+        
+        if limit and len(tickers) >= limit:
+            tickers = tickers[:limit]
+            break
+            
+        if len(res.data) < page_size:
+            break
+            
+        start += page_size
+        
+    return tickers
 
 def fetch_dividend_yields(ticker_list):
     """yfinanceから配当利回りを取得する"""

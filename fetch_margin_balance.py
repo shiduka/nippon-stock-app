@@ -48,7 +48,11 @@ def fetch_margin_balance_yahoo(ticker_list):
                     
                     sell_vol = int(sell_vol_str)
                     buy_vol = int(buy_vol_str)
-                    margin_ratio = float(ratio_str)
+                    # 倍率が「---」の場合はNoneにする（売残0の銘柄など）
+                    try:
+                        margin_ratio = float(ratio_str)
+                    except ValueError:
+                        margin_ratio = None
                     
                     record = {
                         'ticker_symbol': ticker,
@@ -84,11 +88,34 @@ def get_supabase_client() -> Client:
     return create_client(url, key)
 
 def get_active_tickers(supabase: Client, limit: int = None):
-    query = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE")
-    if limit:
-        query = query.limit(limit)
-    res = query.execute()
-    return [row["ticker_symbol"] for row in res.data]
+    tickers = []
+    page_size = 1000
+    start = 0
+    
+    while True:
+        query = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE")
+        
+        # ページネーションの範囲を指定
+        query = query.range(start, start + page_size - 1)
+        res = query.execute()
+        
+        if not res.data:
+            break
+            
+        tickers.extend([row["ticker_symbol"] for row in res.data])
+        
+        # limitが指定されていれば、その数に達したら終了
+        if limit and len(tickers) >= limit:
+            tickers = tickers[:limit]
+            break
+            
+        # 取得件数がpage_size未満なら全件取得完了
+        if len(res.data) < page_size:
+            break
+            
+        start += page_size
+        
+    return tickers
 
 if __name__ == "__main__":
     print("信用取引残高の取得を開始します (Yahoo!ファイナンス経由)...")
