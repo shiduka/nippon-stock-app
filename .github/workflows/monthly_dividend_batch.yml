@@ -1,13 +1,10 @@
 name: Monthly Dividend Yield Batch
 
 on:
-  # 毎月1日の日本時間21:00 (UTC 12:00) に自動実行
-  # ※決算日バッチ(20:00)の1時間後にずらして実行
-  schedule:
+  # 毎月1日の日本時間21:00 (UTC 12:00) に自動実衁E  # ※決算日バッチE20:00)の1時間後にずらして実衁E  schedule:
     - cron: '0 12 1 * *'
   
-  # 手動でボタンを押して実行できるようにする設定
-  workflow_dispatch:
+  # 手動でボタンを押して実行できるようにする設宁E  workflow_dispatch:
 
 jobs:
   run-dividend-batch:
@@ -16,10 +13,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           

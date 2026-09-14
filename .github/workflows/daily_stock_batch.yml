@@ -1,12 +1,10 @@
 name: Daily Stock Price Batch
 
 on:
-  # 平日の日本時間18:00 (UTC 09:00) に自動実行
-  schedule:
+  # 平日の日本時間18:00 (UTC 09:00) に自動実衁E  schedule:
     - cron: '0 9 * * 1-5'
   
-  # 手動でボタンを押して実行できるようにする設定
-  workflow_dispatch:
+  # 手動でボタンを押して実行できるようにする設宁E  workflow_dispatch:
 
 jobs:
   run-batch:
@@ -14,10 +12,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           
@@ -27,8 +25,7 @@ jobs:
           pip install -r requirements.txt
           
       - name: Run Fetch Stock Prices
-        # GitHubのSecretsに登録した環境変数を利用して実行
-        env:
+        # GitHubのSecretsに登録した環墁E��数を利用して実衁E        env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
