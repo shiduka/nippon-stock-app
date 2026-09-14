@@ -112,15 +112,19 @@ def fetch_margin_balance_yahoo(ticker_list):
                 skip_count += 1
                 
         except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code if e.response else 0
+            # e.response がある場合はステータスコードを取得
+            status_code = e.response.status_code if hasattr(e, 'response') and e.response else 0
             
-            if status_code == 404:
-                # 404: ページが存在しない（非上場・新規銘柄）→ スキップ
+            # e.responseが取れない場合でも文字列から判定
+            err_str = str(e)
+            if '404' in err_str:
                 skip_count += 1
-            elif status_code == 500:
-                # 500: 非信用銘柄の可能性が高いが、レート制限の場合もある
-                # → 1回だけリトライ
-                time.sleep(3)
+            elif '500' in err_str:
+                # 500エラー（非信用銘柄 or レート制限）
+                # 連続する場合はレート制限の可能性が高いので長めに休む
+                print(f"  ⚠️ 500エラーを検知。レート制限回避のため15秒待機します...")
+                time.sleep(15)
+                
                 try:
                     data = fetch_margin_for_ticker(ticker, headers)
                     if data:
@@ -134,25 +138,25 @@ def fetch_margin_balance_yahoo(ticker_list):
                     skip_count += 1
             else:
                 error_count += 1
-                print(f"  ❌ [{ticker}] HTTPエラー {status_code}: {e}")
+                print(f"  ❌ [{ticker}] HTTPエラー: {e}")
                 
         except Exception as e:
             error_count += 1
             print(f"  ❌ [{ticker}] 取得エラー: {e}")
         
-        # 進捗表示（100銘柄ごと）
-        if (i + 1) % 100 == 0:
+        # 進捗表示（50銘柄ごと）
+        if (i + 1) % 50 == 0:
             success = len(results)
             print(f"\n  === 進捗: {i + 1}/{total} 処理済み | ✅ 成功: {success} | ⏭️ スキップ: {skip_count} | ❌ エラー: {error_count} ===\n")
         
-        # 100銘柄ごとに長めの休憩（レート制限回避）
-        if (i + 1) % 100 == 0:
-            pause = random.uniform(5, 10)
-            print(f"  💤 レート制限回避のため {pause:.1f} 秒休憩...")
+        # 50銘柄ごとに長めの休憩（レート制限回避）
+        if (i + 1) % 50 == 0:
+            pause = random.uniform(10, 15)
+            print(f"  💤 ブロック回避のため {pause:.1f} 秒休憩します...")
             time.sleep(pause)
         else:
-            # 通常は1.5〜2.5秒のランダム遅延
-            time.sleep(random.uniform(1.5, 2.5))
+            # 通常は1.5〜3.0秒のランダム遅延
+            time.sleep(random.uniform(1.5, 3.0))
         
     return results
 
