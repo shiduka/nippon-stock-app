@@ -106,51 +106,53 @@ if __name__ == "__main__":
     consecutive_errors = 0
     
     for i, ticker in enumerate(target_tickers):
+        benefits = None
+        is_error = False
+        
         try:
             benefits = fetch_benefit_from_yahoo(ticker, headers)
+            consecutive_errors = 0 # 正常に200OKが返ればリセット
             
+        except requests.exceptions.HTTPError as e:
+            is_error = True
+            error_count += 1
+            consecutive_errors += 1
+            
+            if '404' in str(e):
+                print(f"  [404] {ticker}: ページが存在しません。")
+            else:
+                print(f"  [HTTPエラー] {ticker}: {e}")
+                
+        except Exception as e:
+            is_error = True
+            error_count += 1
+            consecutive_errors += 1
+            print(f"  [エラー] {ticker}: {e}")
+        
+        # エラーなし（200 OK）だった場合のみ結果を判定
+        if not is_error:
             if benefits:
                 all_benefits.extend(benefits)
                 found_count += 1
                 print(f"  [OK] {ticker}: 優待あり ({len(benefits)}件) - {benefits[0]['benefit_summary'][:30]}...")
             else:
                 skip_count += 1
-                
-            consecutive_errors = 0 # 成功したらエラーカウントをリセット
-            
-        except requests.exceptions.HTTPError as e:
-            # 500エラー（サーバーエラー）や404エラーは、非上場や情報なしの可能性が高いのでスキップ
-            if '500' in str(e) or '404' in str(e):
-                skip_count += 1
-            # 403や429はIPブロック・レート制限なので長めのペナルティ待機
-            elif '403' in str(e) or '429' in str(e):
-                print(f"  [ブロック検知] {ticker}: IPブロックを受けました。60秒待機します...")
-                time.sleep(60)
-                error_count += 1
-                consecutive_errors += 1
-            else:
-                error_count += 1
-                consecutive_errors += 1
-                
-        except Exception as e:
-            error_count += 1
-            consecutive_errors += 1
+                # print(f"  [-] {ticker}: 優待なし") # ログが埋まるので通常は非表示
         
-        # もし3回連続でエラーになったら、完全にブロックされているので3分間休む
+        # もし3回連続でエラー(500や403など)になったら、ブロックされているので3分間休む
         if consecutive_errors >= 3:
-            print(f"  [厳重ブロック] 3回連続エラー。サーバーを休ませるため3分間待機します...")
+            print(f"  🚨 [厳重ブロック検知] 3回連続でアクセスエラー。サーバーを休ませるため3分間待機します...")
             time.sleep(180)
             consecutive_errors = 0
             
         # 進捗表示
         if (i + 1) % 50 == 0:
-            print(f"\n  --- 進捗: {i + 1}/{total} | 優待: {found_count} | スキップ: {skip_count} | エラー: {error_count} ---\n")
-            # 50件ごとに15〜20秒の長めの休憩（これがないとYahooに確実に弾かれる）
+            print(f"\n  --- 進捗: {i + 1}/{total} | 優待: {found_count} | なし: {skip_count} | エラー: {error_count} ---\n")
+            # 50件ごとに15〜20秒の長めの休憩
             pause = random.uniform(15, 20)
             print(f"  [休憩] {pause:.1f} 秒待機...")
             time.sleep(pause)
         else:
-            # 通常は2〜3.5秒のランダム遅延（非常にゆっくり）
             time.sleep(random.uniform(2.0, 3.5))
             
     print(f"\n取得完了！ 優待実施企業: {found_count}社 / 優待データ合計: {len(all_benefits)}件")
