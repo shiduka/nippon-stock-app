@@ -1,16 +1,16 @@
 name: Weekly Margin Balance Batch
 
 on:
-  # 毎週火曜�E日本時間21:00 (UTC 12:00) に自動実衁E  # ※信用残データは金曜日時点のチE�Eタが翌週火曜日に公開されるため
+  # 豈朱ｱ轣ｫ譖懊・譌･譛ｬ譎る俣21:00 (UTC 12:00) 縺ｫ閾ｪ蜍募ｮ溯｡・  # 窶ｻ菫｡逕ｨ谿九ョ繝ｼ繧ｿ縺ｯ驥第屆譌･譎らせ縺ｮ繝・・繧ｿ縺檎ｿ碁ｱ轣ｫ譖懈律縺ｫ蜈ｬ髢九＆繧後ｋ縺溘ａ
   schedule:
     - cron: '0 12 * * 2'
   
-  # 手動でボタンを押して実行できるようにする設宁E  workflow_dispatch:
+  # 謇句虚縺ｧ繝懊ち繝ｳ繧呈款縺励※螳溯｡後〒縺阪ｋ繧医≧縺ｫ縺吶ｋ險ｭ螳・  workflow_dispatch:
 
 jobs:
   run-margin-batch:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     
     steps:
       - name: Checkout code
