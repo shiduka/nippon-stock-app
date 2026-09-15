@@ -152,33 +152,21 @@ if __name__ == "__main__":
     
     supabase = get_supabase_client()
     
-    # ユーザー指定の6つのURL（利回り別）
-    target_urls = [
-        "https://tokuyutai.com/data/yield-under-05",
-        "https://tokuyutai.com/data/yield-over-05",
-        "https://tokuyutai.com/data/yield-over-10",
-        "https://tokuyutai.com/data/yield-over-20",
-        "https://tokuyutai.com/data/yield-over-50",
-        "https://tokuyutai.com/data/yield-over-100"
-    ]
+    # ゆうかぶは1つのURLからAjaxのページネーションを辿るだけで全件（約2300件）取得できることが判明したため、
+    # 検索条件なしの基本URL1つだけを使用します。
+    base_url = "https://tokuyutai.com/data/yield-over-05"
     
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     })
     
-    all_benefits = []
+    # 全ページを取得
+    valid_benefits = []
+    all_benefits = fetch_all_pages_from_url(base_url, session)
+    print(f"\n総抽出件数: {len(all_benefits)}件")
     
-    for url in target_urls:
-        benefits = fetch_all_pages_from_url(url, session)
-        all_benefits.extend(benefits)
-        print(f"  -> このURLから累計 {len(benefits)} 件のデータを抽出\n")
-        time.sleep(2) # 次のURLへ行く前に少し待つ
-        
-    print(f"全URLの取得が完了しました。総抽出件数: {len(all_benefits)}件")
-    
-    # 重複排除（同じ銘柄・同じ月が複数の利回りページに出現する可能性があるため）
-    # (ticker, month) のタプルをキーにして重複を削除
+    # 重複排除
     unique_benefits_dict = {}
     for b in all_benefits:
         key = (b['ticker_symbol'], b['record_month'])
