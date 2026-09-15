@@ -55,6 +55,12 @@ if __name__ == "__main__":
     # 2. DataFrameに変換してParquet形式でローカルに保存
     df = pd.DataFrame(all_data)
     
+    # Parquet（PyArrow）は空のJSON/ディクショナリ（struct）をうまく処理できないため、
+    # JSONB型のカラム（extra_data等）は一旦文字列(String)に変換してから保存する
+    if 'extra_data' in df.columns:
+        # NoneやNaNを空のJSON文字列 '{}' にし、それ以外はJSON文字列に変換
+        df['extra_data'] = df['extra_data'].apply(lambda x: '{}' if pd.isna(x) or x is None else str(x))
+        
     # 日付を文字列にしてファイル名を作成
     date_str = today.strftime("%Y%m%d")
     filename = f"daily_stock_prices_{date_str}.parquet"
