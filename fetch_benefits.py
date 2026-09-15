@@ -46,18 +46,9 @@ def fetch_all_pages_from_url(base_url, session):
         for inp in form.find_all('input', type='hidden'):
             form_data[inp.get('name', '')] = inp.get('value', '')
             
-    # ページネーション情報（例: "[ 444件中 1～20件表示 ]" から総件数を取得）
-    total_count = 0
-    count_span = soup.find('span', id='view_count1')
-    if count_span:
-        m = re.search(r'\[\s*([\d,]+)\s*件中', count_span.text)
-        if m:
-            total_count = int(m.group(1).replace(',', ''))
-            print(f"    総件数: {total_count}件を発見")
-            
-    if total_count == 0:
-        print("    対象データがありませんでした")
-        return results
+    # 初期ロード時のHTMLには件数が表示されていないため、ここでは件数チェックを行いません。
+    # 代わりに、Ajaxリクエストでデータが空になるか、重複銘柄が出るまで進めます。
+
 
     # Ajax用のベースヘッダー
     ajax_base_url = "https://tokuyutai.com/ajax/meigara/search/list"
@@ -69,10 +60,9 @@ def fetch_all_pages_from_url(base_url, session):
     
     # 2. 1ページ目から順番にPOSTリクエストを送ってデータを取得
     page = 1
-    max_page = (total_count + 19) // 20
     seen_tickers = set() # 無限ループ防止用
     
-    while page <= max_page:
+    while True:
         # Laravel等のページネーション仕様のため、POSTデータではなくURLパラメータでページ番号を渡す
         ajax_url = f"{ajax_base_url}?page={page}"
         form_data['hdn_page'] = str(page)
@@ -147,7 +137,7 @@ def fetch_all_pages_from_url(base_url, session):
                 break
                 
             results.extend(page_results)
-            print(f"    - {page}/{max_page} ページ目を取得完了 ({len(page_results)}件)")
+            print(f"    - {page} ページ目を取得完了 ({len(page_results)}件)")
             
             page += 1
             
