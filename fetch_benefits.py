@@ -2,7 +2,7 @@ import requests
 import re
 import time
 import random
-import sys
+from bs4 import BeautifulSoup
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
@@ -15,165 +15,187 @@ def get_supabase_client() -> Client:
         raise ValueError("SUPABASE_URL or SUPABASE_KEY is missing in .env")
     return create_client(url, key)
 
-def get_active_tickers(supabase: Client, limit: int = None):
-    tickers = []
-    page_size = 1000
-    start = 0
-    
-    while True:
-        query = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE")
-        query = query.range(start, start + page_size - 1)
-        res = query.execute()
-        
-        if not res.data:
-            break
-            
-        tickers.extend([row["ticker_symbol"] for row in res.data])
-        
-        if limit and len(tickers) >= limit:
-            tickers = tickers[:limit]
-            break
-            
-        if len(res.data) < page_size:
-            break
-            
-        start += page_size
-        
-    return tickers
-
-def fetch_benefit_from_yahoo(ticker, headers):
-    url = f"https://finance.yahoo.co.jp/quote/{ticker}.T/incentive"
-    
-    res = requests.get(url, headers=headers, timeout=15)
-    res.raise_for_status()
-    html = res.text
-    
-    if '権利付き最終日' not in html:
-        return None
-        
-    date_matches = re.findall(r'権利付き最終日</th><td[^>]*>([^<]+)</td>', html)
-    months = set()
-    if date_matches:
-        months = set(int(m) for m in re.findall(r'(\d{1,2})月', date_matches[0]))
-    
-    type_match = re.search(r'優待の種類</th><td[^>]*>([^<]+)</td>', html)
-    benefit_type = type_match.group(1).strip() if type_match else ""
-    
-    detail_titles = re.findall(r'IncentiveDetail__detailBox.*?_BasicHeader__heading[^>]*>([^<]+)<', html)
-    detail_summary = " / ".join(detail_titles) if detail_titles else benefit_type
-    
-    min_shares_match = re.search(r'単元株数</th><td[^>]*>(\d+)株</td>', html)
-    min_shares = int(min_shares_match.group(1)) if min_shares_match else 100
-    
+def fetch_all_pages_from_url(base_url, session):
+    """
+    指定された利回り別URLから、1ページ目〜最終ページまでの全銘柄を取得する
+    """
     results = []
-    for month in months:
-        results.append({
-            'ticker_symbol': ticker,
-            'record_month': month,
-            'min_shares': min_shares,
-            'benefit_summary': detail_summary[:500],
-            'is_active': True
-        })
     
-    return results if results else None
-
-if __name__ == "__main__":
-    # printのバッファリングを強制解除するための設定（-uがなくてもリアルタイム出力されるようにする）
-    sys.stdout.reconfigure(line_buffering=True)
+    # 1. 最初のページをGETして、CSRFトークンとフォーム初期値を取得
+    print(f"  [GET] {base_url}")
+    try:
+        res = session.get(base_url, timeout=15)
+        res.raise_for_status()
+        res.encoding = res.apparent_encoding
+        soup = BeautifulSoup(res.text, 'html.parser')
+    except Exception as e:
+        print(f"    エラー: 初期ページの取得に失敗: {e}")
+        return results
+        
+    # CSRFトークン
+    csrf_meta = soup.find('meta', attrs={'name': 'csrf-token'})
+    if not csrf_meta:
+        print("    エラー: CSRFトークンが見つかりません")
+        return results
+    csrf_token = csrf_meta['content']
     
-    print("株主優待データの全件取得を開始します (Yahoo!ファイナンス経由 - 極低速安定版)...")
-    supabase = get_supabase_client()
-    
-    target_tickers = get_active_tickers(supabase, limit=None)
-    print(f"取得対象: {len(target_tickers)} 銘柄\n")
-    
-    all_benefits = []
-    found_count = 0
-    skip_count = 0
-    error_count = 0
-    total = len(target_tickers)
-    
-    # 完全に人間と同じように見せるためのヘッダー
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
+    # Hidden Formの初期値
+    form_data = {}
+    form = soup.find('form', id='form_hid')
+    if form:
+        for inp in form.find_all('input', type='hidden'):
+            form_data[inp.get('name', '')] = inp.get('value', '')
+            
+    # Ajax用のヘッダー
+    ajax_url = "https://tokuyutai.com/ajax/meigara/search/list"
+    ajax_headers = {
+        'X-CSRF-TOKEN': csrf_token,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': base_url,
     }
     
-    consecutive_errors = 0
+    # 2. 1ページ目から順番にPOSTリクエストを送ってデータを取得
+    page = 1
     
-    for i, ticker in enumerate(target_tickers):
-        benefits = None
-        is_error = False
+    while True:
+        form_data['hdn_page'] = str(page)
         
         try:
-            benefits = fetch_benefit_from_yahoo(ticker, headers)
-            consecutive_errors = 0 # 正常に200OKが返ればリセット
+            # サーバー負荷軽減
+            time.sleep(1.0)
             
-        except requests.exceptions.HTTPError as e:
-            is_error = True
-            error_count += 1
-            consecutive_errors += 1
+            ajax_res = session.post(ajax_url, data=form_data, headers=ajax_headers, timeout=15)
+            ajax_res.raise_for_status()
+            data = ajax_res.json()
             
-            if '404' in str(e):
-                print(f"  [404] {ticker}: ページが存在しません。")
-            else:
-                print(f"  [HTTPエラー] {ticker}: {e}")
+            # JSONの中の HTML（meigaraData） をパース
+            html_list = data.get('meigaraData', [])
+            if not html_list:
+                break
+
                 
+            page_results = []
+            for html_str in html_list:
+                item_soup = BeautifulSoup(html_str, 'html.parser')
+                
+                # 銘柄名とコード (例: "エックスネット(4762)")
+                title_elem = item_soup.find('div', class_='yutai_tl')
+                if not title_elem:
+                    continue
+                    
+                title_text = title_elem.text.strip()
+                code_match = re.search(r'（?(\d{4})）?', title_text)
+                if not code_match:
+                    continue
+                ticker = code_match.group(1)
+                
+                # 優待内容要約
+                summary_elem = item_soup.find('div', class_='yutai_title')
+                summary = summary_elem.text.strip() if summary_elem else "株主優待"
+                
+                # 権利確定月
+                stock_elem = item_soup.find('div', class_='yutai_stock')
+                stock_text = stock_elem.text if stock_elem else ""
+                
+                # 「権利確定日　3月末、9月末」などのテキストから月をすべて抽出
+                months = set()
+                month_matches = re.findall(r'(\d{1,2})月末?', stock_text)
+                for m in month_matches:
+                    months.add(int(m))
+                    
+                # 最低必要株数は一覧にはないため、デフォルト100株とする
+                min_shares = 100
+                
+                if not months:
+                    # 月が不明な場合はスキップ
+                    continue
+                    
+                for month in months:
+                    page_results.append({
+                        'ticker_symbol': ticker,
+                        'record_month': month,
+                        'min_shares': min_shares,
+                        'benefit_summary': summary[:500],
+                        'is_active': True
+                    })
+                    
+            results.extend(page_results)
+            print(f"    - {page} ページ目を取得完了 ({len(page_results)}件)")
+            
+            page += 1
+            
         except Exception as e:
-            is_error = True
-            error_count += 1
-            consecutive_errors += 1
-            print(f"  [エラー] {ticker}: {e}")
-        
-        # エラーなし（200 OK）だった場合のみ結果を判定
-        if not is_error:
-            if benefits:
-                all_benefits.extend(benefits)
-                found_count += 1
-                print(f"  [OK] {ticker}: 優待あり ({len(benefits)}件) - {benefits[0]['benefit_summary'][:30]}...")
-            else:
-                skip_count += 1
-                # print(f"  [-] {ticker}: 優待なし") # ログが埋まるので通常は非表示
-        
-        # もし3回連続でエラー(500や403など)になったら、ブロックされているので3分間休む
-        if consecutive_errors >= 3:
-            print(f"  🚨 [厳重ブロック検知] 3回連続でアクセスエラー。サーバーを休ませるため3分間待機します...")
-            time.sleep(180)
-            consecutive_errors = 0
+            print(f"    エラー: {page}ページ目の取得に失敗: {e}")
+            break
             
-        # 進捗表示
-        if (i + 1) % 50 == 0:
-            print(f"\n  --- 進捗: {i + 1}/{total} | 優待: {found_count} | なし: {skip_count} | エラー: {error_count} ---\n")
-            # 50件ごとに15〜20秒の長めの休憩
-            pause = random.uniform(15, 20)
-            print(f"  [休憩] {pause:.1f} 秒待機...")
-            time.sleep(pause)
-        else:
-            time.sleep(random.uniform(2.0, 3.5))
-            
-    print(f"\n取得完了！ 優待実施企業: {found_count}社 / 優待データ合計: {len(all_benefits)}件")
+    return results
+
+if __name__ == "__main__":
+    print("=== 株主優待データの全件取得を開始します (ゆうかぶ経由) ===\n")
     
-    if all_benefits:
-        print("Supabaseへの保存を開始します...")
+    supabase = get_supabase_client()
+    
+    # ユーザー指定の6つのURL（利回り別）
+    target_urls = [
+        "https://tokuyutai.com/data/yield-under-05",
+        "https://tokuyutai.com/data/yield-over-05",
+        "https://tokuyutai.com/data/yield-over-10",
+        "https://tokuyutai.com/data/yield-over-20",
+        "https://tokuyutai.com/data/yield-over-50",
+        "https://tokuyutai.com/data/yield-over-100"
+    ]
+    
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    })
+    
+    all_benefits = []
+    
+    for url in target_urls:
+        benefits = fetch_all_pages_from_url(url, session)
+        all_benefits.extend(benefits)
+        print(f"  -> このURLから累計 {len(benefits)} 件のデータを抽出\n")
+        time.sleep(2) # 次のURLへ行く前に少し待つ
+        
+    print(f"全URLの取得が完了しました。総抽出件数: {len(all_benefits)}件")
+    
+    # 重複排除（同じ銘柄・同じ月が複数の利回りページに出現する可能性があるため）
+    # (ticker, month) のタプルをキーにして重複を削除
+    unique_benefits_dict = {}
+    for b in all_benefits:
+        key = (b['ticker_symbol'], b['record_month'])
+        unique_benefits_dict[key] = b
+        
+    valid_benefits = list(unique_benefits_dict.values())
+    print(f"重複排除後の件数: {len(valid_benefits)}件")
+    
+    # DBに存在する銘柄のみにフィルタリング
+    print("\nデータベースと照合中...")
+    active_res = supabase.table("companies").select("ticker_symbol").execute()
+    active_tickers = set(row['ticker_symbol'] for row in active_res.data)
+    
+    valid_benefits = [b for b in valid_benefits if b['ticker_symbol'] in active_tickers]
+    print(f"有効な優待データ（DB登録対象）: {len(valid_benefits)}件")
+    
+    if valid_benefits:
+        print("\nSupabaseへの保存を開始します...")
         try:
             supabase.table("shareholder_benefits").delete().neq("benefit_id", 0).execute()
             print("  既存データをクリアしました。")
         except Exception as e:
             print(f"  既存データのクリアに失敗: {e}")
         
+        # 1000件ずつインサート
         batch_size = 1000
-        for j in range(0, len(all_benefits), batch_size):
-            batch = all_benefits[j:j+batch_size]
+        for j in range(0, len(valid_benefits), batch_size):
+            batch = valid_benefits[j:j+batch_size]
             try:
                 supabase.table("shareholder_benefits").insert(batch).execute()
-                print(f"  [保存] {min(j+batch_size, len(all_benefits))}/{len(all_benefits)} 件を保存完了。")
+                print(f"  [保存] {min(j+batch_size, len(valid_benefits))}/{len(valid_benefits)} 件を保存完了。")
             except Exception as e:
                 print(f"  保存エラー: {e}")
         
-        print(f"全 {len(all_benefits)} 件の優待データを保存しました！")
+        print(f"\n🎉 全 {len(valid_benefits)} 件の優待データを保存しました！")
     else:
         print("保存するデータがありませんでした。")
