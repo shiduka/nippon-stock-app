@@ -10,3 +10,4 @@ openpyxl
 python-dateutil
 pyarrow
 pandas
+playwright
