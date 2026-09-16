@@ -175,11 +175,18 @@ if __name__ == "__main__":
     valid_benefits = list(unique_benefits_dict.values())
     print(f"重複排除後の件数: {len(valid_benefits)}件")
     
-    # DBに存在する銘柄のみにフィルタリング
-    print("\nデータベースと照合中...")
-    active_res = supabase.table("companies").select("ticker_symbol").execute()
-    active_tickers = set(row['ticker_symbol'] for row in active_res.data)
-    
+    # Supabase上の有効な企業（companies）のticker_symbol一覧を取得 (1000件制限を回避)
+    print("データベースと照合中...")
+    active_tickers = set()
+    page_size = 1000
+    start = 0
+    while True:
+        active_res = supabase.table("companies").select("ticker_symbol").range(start, start + page_size - 1).execute()
+        if not active_res.data:
+            break
+        active_tickers.update(row['ticker_symbol'] for row in active_res.data)
+        start += page_size
+        
     valid_benefits = [b for b in valid_benefits if b['ticker_symbol'] in active_tickers]
     print(f"有効な優待データ（DB登録対象）: {len(valid_benefits)}件")
     
