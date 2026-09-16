@@ -162,9 +162,16 @@ if __name__ == "__main__":
     
     if data:
         print("データベースと照合中...")
-        active_res = supabase.table("companies").select("ticker_symbol").execute()
-        active_tickers = set(row['ticker_symbol'] for row in active_res.data)
-        
+        active_tickers = set()
+        page_size = 1000
+        start = 0
+        while True:
+            active_res = supabase.table("companies").select("ticker_symbol").range(start, start + page_size - 1).execute()
+            if not active_res.data:
+                break
+            active_tickers.update(row['ticker_symbol'] for row in active_res.data)
+            start += page_size
+            
         valid_data = [d for d in data if d['ticker_symbol'] in active_tickers]
         print(f"有効な信用残高データ（DB登録対象）: {len(valid_data)}件\n")
         
