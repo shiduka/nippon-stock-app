@@ -91,6 +91,7 @@ def fetch_margin_balance_yahoo(ticker_list):
     total = len(ticker_list)
     skip_count = 0
     error_count = 0
+    consecutive_skips = 0
     
     # スクレイピング用のヘッダー
     headers = {
@@ -108,8 +109,10 @@ def fetch_margin_balance_yahoo(ticker_list):
                 data['report_date'] = report_date.isoformat()
                 results.append(data)
                 print(f"  ✅ {ticker}: 売残={data['margin_sell_volume']:,} 買残={data['margin_buy_volume']:,} 倍率={data['margin_ratio']}")
+                consecutive_skips = 0  # 成功したらリセット
             else:
                 skip_count += 1
+                consecutive_skips += 1
                 
         except requests.exceptions.HTTPError as e:
             # e.response がある場合はステータスコードを取得
@@ -118,38 +121,48 @@ def fetch_margin_balance_yahoo(ticker_list):
             # e.responseが取れない場合でも文字列から判定
             err_str = str(e)
             if '404' in err_str or '500' in err_str:
-                # Yahooファイナンスは、非貸借・非信用銘柄（信用取引対象外の株）のページに
-                # アクセスすると 404 や 500 エラーを返す仕様になっている。
-                # レート制限ではないため、休止せずに即座にスキップして次へ進む。
                 skip_count += 1
+                consecutive_skips += 1
             elif '403' in err_str or '429' in err_str:
-                # これは完全にIPブロック/レート制限。1分ほど休んでリトライするか諦める。
                 print(f"  ⚠ 403/429ブロックを検知。レート制限回避のため60秒待機します...")
                 time.sleep(60)
                 skip_count += 1
                 error_count += 1
+                consecutive_skips += 1
                 print(f"  ❌ [{ticker}] HTTPエラー: {e}")
             else:
                 error_count += 1
+                consecutive_skips += 1
                 print(f"  ❌ [{ticker}] HTTPエラー: {e}")
                 
         except Exception as e:
             error_count += 1
+            consecutive_skips += 1
             print(f"  ❌ [{ticker}] 取得エラー: {e}")
+            
+        # 安全装置: 100件連続でスキップが続いた場合、YahooのCAPTCHAにブロックされたと判断
+        if consecutive_skips >= 100:
+            print(f"\n  🚨 100件連続でデータが取得できませんでした。Yahooのボット検知に完全にブロックされたため、処理を中断します。")
+            break
         
         # 進捗表示（50銘柄ごと）
         if (i + 1) % 50 == 0:
             success = len(results)
             print(f"\n  === 進捗: {i + 1}/{total} 処理済み | ✅ 成功: {success} | ⏭️ スキップ: {skip_count} | ❌ エラー: {error_count} ===\n")
+            
+        # 安全装置: 50回以上連続でスキップ（Noneまたはエラー）が続いた場合、Yahooのボット検知に引っかかっている可能性が高い
+        if skip_count > 0 and len(results) > 0 and (skip_count % 50 == 0) and (i - len(results) > 50):
+            # 最近の50件がすべてスキップかどうかを厳密に判定するのは複雑なので簡易的に
+            pass # ここでは複雑化を避けるため実装をスキップ
         
         # 50銘柄ごとに長めの休憩（レート制限回避）
         if (i + 1) % 50 == 0:
-            pause = random.uniform(10, 15)
+            pause = random.uniform(30, 45) # 15秒から30〜45秒に延長
             print(f"  💤 ブロック回避のため {pause:.1f} 秒休憩します...")
             time.sleep(pause)
         else:
-            # 通常は1.5〜3.0秒のランダム遅延
-            time.sleep(random.uniform(1.5, 3.0))
+            # 通常は 3.0〜5.0 秒のランダム遅延（WAFの分間アクセス数制限を回避するため）
+            time.sleep(random.uniform(3.0, 5.0))
         
     return results
 
