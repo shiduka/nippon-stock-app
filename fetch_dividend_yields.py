@@ -50,11 +50,8 @@ def fetch_and_save_dividend_yields():
             dividend_yield = info.get('dividendYield')
             
             if dividend_yield is not None and dividend_yield > 0:
-                # 念のため0〜1の小数で返ってきた場合は×100する
-                if dividend_yield < 1:
-                    dividend_yield = round(dividend_yield * 100, 2)
-                else:
-                    dividend_yield = round(dividend_yield, 2)
+                # yfinanceはパーセント値(例:3.31=3.31%, 0.95=0.95%)で返す
+                dividend_yield = round(float(dividend_yield), 2)
                     
                 supabase.table("companies").update({
                     "dividend_yield": dividend_yield
