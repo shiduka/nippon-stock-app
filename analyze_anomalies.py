@@ -158,19 +158,26 @@ def analyze_anomalies(parquet_path="data/historical_prices_10y.parquet"):
     if not results:
         return
         
+    # 重複排除（同じticker_symbolが複数ある場合、最初のものを優先または上書き）
+    unique_results = {}
+    for r in results:
+        unique_results[r['ticker_symbol']] = r
+        
+    final_results = list(unique_results.values())
+    
     # Supabaseに一括アップロード
     chunk_size = 500
     total_saved = 0
-    for i in range(0, len(results), chunk_size):
-        chunk = results[i:i + chunk_size]
+    for i in range(0, len(final_results), chunk_size):
+        chunk = final_results[i:i + chunk_size]
         try:
             supabase.table("anomaly_analysis_results").upsert(chunk).execute()
             total_saved += len(chunk)
-            print(f"  💾 {total_saved}/{len(results)} 件を保存...")
+            print(f"  > {total_saved}/{len(final_results)} 件を保存...")
         except Exception as e:
-            print(f"  ❌ 保存エラー (chunk {i}): {e}")
+            print(f"  x 保存エラー (chunk {i}): {e}")
             
-    print("\n🎉 すべての処理が完了しました！")
+    print("\nすべての処理が完了しました！")
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(line_buffering=True)

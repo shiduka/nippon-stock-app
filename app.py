@@ -35,7 +35,7 @@ supabase = init_supabase()
 st.set_page_config(page_title="日本株投資先発掘アプリ", layout="centered", initial_sidebar_state="collapsed")
 st.title("📈 日本株投資先発掘アプリ")
 
-tab1, tab2, tab3, tab4 = st.tabs(["個別銘柄詳細", "優待スクリーナー", "スマート検索", "システム管理"])
+tab1, tab2, tab5, tab3, tab4 = st.tabs(["個別銘柄詳細", "優待スクリーナー", "アノマリー分析", "スマート検索", "システム管理"])
 
 # ==========================================
 # タブ1: 個別銘柄詳細
@@ -143,6 +143,35 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("この銘柄の株価データはまだ取得されていません。")
+                
+            # ==========================================
+            # 優待アノマリー分析結果の表示
+            # ==========================================
+            anomaly_res = supabase.table("anomaly_analysis_results").select("*").eq("ticker_symbol", ticker).execute()
+            if anomaly_res.data:
+                anom = anomaly_res.data[0]
+                st.markdown("---")
+                st.write("🎯 **優待権利月の株価上昇アノマリー（過去10年分析）**")
+                
+                best_offset = anom.get('best_buy_offset')
+                if best_offset:
+                    st.info(f"💡 **最適な仕込み時期:** 権利確定月の **{best_offset}ヶ月前** の月末")
+                
+                # 勝率と平均リターンの表を作成
+                anom_data = []
+                for i in range(1, 7):
+                    win_rate = anom.get(f'win_rate_{i}m')
+                    avg_return = anom.get(f'avg_return_{i}m')
+                    if win_rate is not None and avg_return is not None:
+                        anom_data.append({
+                            "買いタイミング": f"{i}ヶ月前",
+                            "勝率": f"{win_rate * 100:.1f} %",
+                            "平均リターン": f"{avg_return * 100:+.2f} %"
+                        })
+                
+                if anom_data:
+                    st.table(pd.DataFrame(anom_data))
+                    st.caption(f"※分析対象データ年数: {anom.get('analyzed_years', 'N/A')}年分")
             
             if len(data) > 1:
                 st.markdown("---")
@@ -537,3 +566,53 @@ with tab4:
     st.dataframe(df_batch, hide_index=True, use_container_width=True)
     
     st.caption("💡 各バッチはGitHub Actionsで自動実行されます。手動実行はGitHubリポジトリの「Actions」タブから行えます。")
+
+# ==========================================
+# タブ5: 優待アノマリー分析
+# ==========================================
+with tab5:
+    st.subheader("🎯 優待権利月の株価上昇アノマリー")
+    st.write("過去10年分の株価データから、権利確定月に向けて株価が上がりやすい（勝率が高い）銘柄のランキングを表示します。")
+
+    col1, col2 = st.columns(2)
+    sort_by = col1.selectbox("ランキングの基準", ["平均リターンが高い順", "勝率が高い順"])
+    buy_offset = col2.selectbox("仕込みタイミング", ["3ヶ月前 (標準)", "1ヶ月前", "2ヶ月前", "4ヶ月前", "5ヶ月前", "6ヶ月前"])
+
+    offset_map = {
+        "1ヶ月前": 1, "2ヶ月前": 2, "3ヶ月前": 3,
+        "4ヶ月前": 4, "5ヶ月前": 5, "6ヶ月前": 6,
+        "3ヶ月前 (標準)": 3
+    }
+    offset_val = offset_map[buy_offset]
+
+    if st.button("ランキングを表示"):
+        with st.spinner("アノマリーデータを取得中..."):
+            # データの取得
+            order_col = f"avg_return_{offset_val}m" if sort_by == "平均リターンが高い順" else f"win_rate_{offset_val}m"
+            
+            anom_res = supabase.table("anomaly_analysis_results").select("ticker_symbol, analyzed_years, " + f"win_rate_{offset_val}m, avg_return_{offset_val}m").order(order_col, desc=True).limit(100).execute()
+            
+            if anom_res.data:
+                tickers = [d['ticker_symbol'] for d in anom_res.data]
+                # 企業情報と優待月の取得
+                comp_res = supabase.table("companies").select("ticker_symbol, company_name").in_("ticker_symbol", tickers).execute()
+                ben_res = supabase.table("shareholder_benefits").select("ticker_symbol, record_month").in_("ticker_symbol", tickers).execute()
+                
+                df_anom = pd.DataFrame(anom_res.data)
+                df_comp = pd.DataFrame(comp_res.data)
+                df_ben = pd.DataFrame(ben_res.data)
+                
+                df_merged = pd.merge(df_anom, df_comp, on="ticker_symbol", how="left")
+                df_merged = pd.merge(df_merged, df_ben, on="ticker_symbol", how="left")
+                
+                # 表示用のデータ成形
+                df_display = df_merged[["ticker_symbol", "company_name", "record_month", "analyzed_years", f"win_rate_{offset_val}m", f"avg_return_{offset_val}m"]]
+                df_display.columns = ["コード", "銘柄名", "権利月", "分析年数", "勝率", "平均リターン"]
+                
+                # フォーマット
+                df_display["勝率"] = df_display["勝率"].apply(lambda x: f"{x*100:.1f} %" if pd.notna(x) else "-")
+                df_display["平均リターン"] = df_display["平均リターン"].apply(lambda x: f"{x*100:+.2f} %" if pd.notna(x) else "-")
+                
+                st.dataframe(df_display, hide_index=True, use_container_width=True)
+            else:
+                st.warning("アノマリーデータがありません。")

@@ -86,7 +86,7 @@ def fetch_historical_prices(years=10):
     print(f"Parquetファイルとして保存しています: {parquet_path}")
     df_records.to_parquet(parquet_path, index=False)
     
-    print("\n✅ 完了しました！")
+    print("\n完了しました！")
     print("このParquetファイルを使って、アノマリーの分析スクリプトを実行できます。")
 
 if __name__ == "__main__":
