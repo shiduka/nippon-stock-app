@@ -83,19 +83,20 @@ def fetch_kabutan_margin_ranking():
                     if not ticker.isdigit():
                         continue
                         
-                    # 信用倍率
-                    ratio_str = cols[9].text.replace(',', '').strip()
-                    try:
-                        ratio = float(ratio_str)
-                    except ValueError:
-                        ratio = 0.0
-                        
-                    # 残高
-                    volume_str = cols[10].text.replace(',', '').strip()
+                    # col[9]=株数(売り残 or 買い残), col[10]=信用倍率 が正しいマッピング
+                    # 残高（株数）
+                    volume_str = cols[9].text.replace(',', '').strip()
                     try:
                         volume = int(volume_str)
                     except ValueError:
                         volume = 0
+                        
+                    # 信用倍率
+                    ratio_str = cols[10].text.replace(',', '').strip()
+                    try:
+                        ratio = float(ratio_str)
+                    except ValueError:
+                        ratio = 0.0
                         
                     buy_vol = 0
                     sell_vol = 0

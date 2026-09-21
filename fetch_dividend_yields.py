@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import yfinance as yf
 from supabase import create_client, Client
@@ -14,99 +15,72 @@ def get_supabase_client() -> Client:
         raise ValueError("SUPABASE_URL or SUPABASE_KEY is missing in .env")
     return create_client(url, key)
 
-def get_active_tickers(supabase: Client, limit: int = None):
-    """アクティブな銘柄コードの一覧をDBから取得する"""
+def get_active_tickers(supabase: Client):
+    """アクティブな銘柄コードの一覧をDBから取得する（1000件制限を回避）"""
     tickers = []
     page_size = 1000
     start = 0
-    
     while True:
-        query = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE")
-        query = query.range(start, start + page_size - 1)
-        res = query.execute()
-        
+        res = supabase.table("companies").select("ticker_symbol").eq("status", "ACTIVE").range(start, start + page_size - 1).execute()
         if not res.data:
             break
-            
         tickers.extend([row["ticker_symbol"] for row in res.data])
-        
-        if limit and len(tickers) >= limit:
-            tickers = tickers[:limit]
-            break
-            
         if len(res.data) < page_size:
             break
-            
         start += page_size
-        
     return tickers
 
-def fetch_dividend_yields(ticker_list):
-    """yfinanceから配当利回りを取得する"""
-    results = []
+def fetch_and_save_dividend_yields():
+    supabase = get_supabase_client()
+    target_tickers = get_active_tickers(supabase)
+    print(f"取得対象: {len(target_tickers)} 銘柄\n")
     
-    for i, ticker in enumerate(ticker_list):
+    success_count = 0
+    skip_count = 0
+    error_count = 0
+    
+    for i, ticker in enumerate(target_tickers):
         ticker_yf = f"{ticker}.T"
         
         try:
             stock = yf.Ticker(ticker_yf)
             info = stock.info
             
+            # dividendYieldは%(例:3.31=3.31%)で返ってくる
             dividend_yield = info.get('dividendYield')
             
             if dividend_yield is not None and dividend_yield > 0:
-                # yfinanceは小数(0.033)で返す場合と%(3.3)で返す場合があるので正規化
+                # 念のため0〜1の小数で返ってきた場合は×100する
                 if dividend_yield < 1:
                     dividend_yield = round(dividend_yield * 100, 2)
                 else:
                     dividend_yield = round(dividend_yield, 2)
                     
-                results.append({
-                    'ticker_symbol': ticker,
-                    'dividend_yield': dividend_yield
-                })
-                print(f"  ✅ {ticker}: 配当利回り = {dividend_yield}%")
+                supabase.table("companies").update({
+                    "dividend_yield": dividend_yield
+                }).eq("ticker_symbol", ticker).execute()
+                
+                success_count += 1
+                if success_count % 50 == 0:
+                    print(f"  ... {i + 1} / {len(target_tickers)} 処理済み（配当あり: {success_count}件）")
             else:
-                # 無配の銘柄は0%として記録
-                results.append({
-                    'ticker_symbol': ticker,
-                    'dividend_yield': 0.0
-                })
+                # 無配/取得不可 → 0.0に更新（NULLのまま残さない）
+                supabase.table("companies").update({
+                    "dividend_yield": 0.0
+                }).eq("ticker_symbol", ticker).execute()
+                skip_count += 1
                 
         except Exception as e:
-            print(f"  ❌ [{ticker}] 取得エラー: {e}")
+            error_count += 1
+            if error_count <= 10:
+                print(f"  x [{ticker}] 取得エラー: {e}")
         
-        # 進捗表示
-        if (i + 1) % 50 == 0:
-            print(f"  ... {i + 1} / {len(ticker_list)} 銘柄を処理済み")
-        
-        # サーバー負荷軽減
-        time.sleep(0.5)
+        # yfinanceレート制限回避のため適度に休憩
+        time.sleep(0.3)
     
-    return results
+    print(f"\n完了: 配当あり {success_count}件 / 無配(0%) {skip_count}件 / エラー {error_count}件")
 
 if __name__ == "__main__":
-    print("配当利回りの取得を開始します (yfinance経由)...")
-    supabase = get_supabase_client()
-    
-    # 全銘柄を対象に取得
-    target_tickers = get_active_tickers(supabase, limit=None)
-    print(f"取得対象: {len(target_tickers)} 銘柄\n")
-    
-    data = fetch_dividend_yields(target_tickers)
-    
-    if data:
-        print(f"\nSupabaseへの保存を開始します ({len(data)} 件)...")
-        success_count = 0
-        for record in data:
-            try:
-                supabase.table("companies").update({
-                    "dividend_yield": record["dividend_yield"]
-                }).eq("ticker_symbol", record["ticker_symbol"]).execute()
-                success_count += 1
-            except Exception as e:
-                print(f"  保存エラー [{record['ticker_symbol']}]: {e}")
-        
-        print(f"✅ {success_count} 件の配当利回りデータを保存しました！")
-    else:
-        print("データが取得できませんでした。")
+    sys.stdout.reconfigure(line_buffering=True)
+    print("=== 配当利回りの一括更新を開始します (yfinance経由) ===")
+    fetch_and_save_dividend_yields()
