@@ -43,6 +43,10 @@ tab1, tab2, tab5, tab3, tab4 = st.tabs(["個別銘柄詳細", "優待スクリ�
 with tab1:
     st.subheader("🔍 銘柄の検索・分析")
     
+    # session_state の初期化
+    if "selected_ticker_direct" not in st.session_state:
+        st.session_state["selected_ticker_direct"] = None
+    
     # ==========================================
     # お気に入り一覧の表示
     # ==========================================
@@ -52,20 +56,44 @@ with tab1:
         fav_comp_res = supabase.table("companies").select("ticker_symbol, company_name").in_("ticker_symbol", fav_tickers).execute()
         fav_name_map = {c["ticker_symbol"]: c["company_name"] for c in fav_comp_res.data}
         
-        st.markdown("⭐ **お気に入り銘柄** （クリックで検索欄にコピーしてください）")
+        st.markdown("⭐ **お気に入り銘柄** （ボタンをクリックすると直接表示されます）")
         # お気に入りをボタンとして横並びに表示
         fav_cols = st.columns(min(len(fav_tickers), 5))
         for i, t in enumerate(fav_tickers[:10]):
             name = fav_name_map.get(t, t)
-            fav_cols[i % 5].caption(f"**{t}** {name}")
+            # ボタンをクリックしたら直接その銘柄を表示
+            if fav_cols[i % 5].button(f"⭐ {t}\n{name}", key=f"fav_btn_{t}"):
+                st.session_state["selected_ticker_direct"] = t
         st.markdown("---")
     
-    search_query = st.text_input("銘柄コードまたは企業名で検索", placeholder="例: 7203 または トヨタ")
+    # ==========================================
+    # 検索欄 + 検索ボタン
+    # ==========================================
+    search_col, btn_col = st.columns([5, 1])
+    search_query = search_col.text_input("銘柄コードまたは企業名で検索", placeholder="例: 7203 または トヨタ", label_visibility="collapsed")
+    search_btn = btn_col.button("🔍 検索", use_container_width=True)
+    search_col.caption("銘柄コードまたは企業名を入力して Enter または「検索」ボタンを押してください")
     
-    if search_query:
+    # お気に入りからの直接表示、または検索欄からの検索
+    direct_ticker = st.session_state.get("selected_ticker_direct")
+    
+    # 検索欄が使われたらお気に入りからの直接表示をリセット
+    if search_query and (search_btn or search_query):
+        st.session_state["selected_ticker_direct"] = None
+        direct_ticker = None
+    
+    # 検索対象の決定
+    if direct_ticker:
+        # お気に入りボタンクリック → 直接銘柄コードで検索
+        response = supabase.table("companies").select("*").eq("ticker_symbol", direct_ticker).execute()
+    elif search_query:
+        # 手入力検索
         query = f"%{search_query}%"
         response = supabase.table("companies").select("*").or_(f"ticker_symbol.ilike.{query},company_name.ilike.{query}").limit(5).execute()
-        
+    else:
+        response = None
+    
+    if response:
         data = response.data
         if not data:
             st.warning(f"「{search_query}」に一致する銘柄が見つかりませんでした。")
