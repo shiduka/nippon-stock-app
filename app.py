@@ -127,6 +127,23 @@ with tab1:
                 else:
                     col4.metric(label="次回決算", value="未定", delta_color="off")
                 
+                # ==========================================
+                # 株主優待情報の表示
+                # ==========================================
+                benefit_res = supabase.table("shareholder_benefits").select("*").eq("ticker_symbol", ticker).eq("is_active", True).execute()
+                if benefit_res.data:
+                    st.markdown("---")
+                    st.write("🎁 **株主優待情報**")
+                    for ben in benefit_res.data:
+                        month = ben.get("record_month")
+                        shares = ben.get("min_shares")
+                        summary = ben.get("benefit_summary")
+                        st.success(f"**権利確定月:** {month}月 ｜ **最低必要株数:** {shares}株\n\n**優待内容:** {summary}")
+                else:
+                    st.markdown("---")
+                    st.write("🎁 **株主優待情報**")
+                    st.info("現在、株主優待は実施していません。")
+                
                 st.markdown("---")
                 st.write("📊 **直近の株価推移**")
                 
