@@ -440,7 +440,7 @@ with tab4:
         {"バッチ名": "📊 Daily Stock Price", "スケジュール": "平日 18:00 (JST)", "スクリプト": "fetch_stock_prices.py", "対象": "全銘柄の株価"},
         {"バッチ名": "💹 Weekly Margin Balance", "スケジュール": "毎週火曜 21:00 (JST)", "スクリプト": "fetch_margin_balance.py", "対象": "全銘柄の信用残高"},
         {"バッチ名": "📅 Monthly Earnings Date", "スケジュール": "毎月1日 20:00 (JST)", "スクリプト": "fetch_earnings_dates.py", "対象": "全銘柄の決算日"},
-        {"バッチ名": "💰 Monthly Dividend Yield", "スケジュール": "毎月1日 21:00 (JST)", "スク পণ্ডিত": "fetch_dividend_yields.py", "対象": "全銘柄の配当利回り"},
+        {"バッチ名": "💰 Monthly Dividend Yield", "スケジュール": "毎月1日 21:00 (JST)", "スクリプト": "fetch_dividend_yields.py", "対象": "全銘柄の配当利回り"},
         {"バッチ名": "🎁 Monthly Benefits", "スケジュール": "毎月15日 20:00 (JST)", "スクリプト": "fetch_benefits.py", "対象": "全銘柄の株主優待"},
     ]
     st.dataframe(pd.DataFrame(batch_data), hide_index=True, use_container_width=True)
