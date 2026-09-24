@@ -406,7 +406,7 @@ with tab4:
     st.write("データベースの最新状況やバッチ処理のスケジュールを確認できます。")
     with st.spinner("ステータスを取得中..."):
         companies_res = supabase.table("companies").select("ticker_symbol", count="exact").execute()
-        active_res = supabase.table("companies").select("ticker_symbol", count="exact").eq("is_active", True).execute()
+        active_res = supabase.table("companies").select("ticker_symbol", count="exact").eq("status", "ACTIVE").execute()
         prices_res = supabase.table("daily_stock_prices").select("ticker_symbol", count="exact").execute()
         margin_res = supabase.table("margin_balances").select("ticker_symbol", count="exact").execute()
         benefits_res = supabase.table("shareholder_benefits").select("benefit_id", count="exact").execute()
