@@ -1,4 +1,4 @@
-﻿import os
+import os
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -46,15 +46,22 @@ with tab1:
         st.session_state["selected_ticker_direct"] = None
         
     if not search_query and not direct_ticker:
-        fav_res = supabase.table("favorites").select("ticker_symbol, company_name").execute()
+        fav_res = supabase.table("favorites").select("ticker_symbol").execute()
         if fav_res.data:
             st.markdown("⭐ **お気に入り:**")
+            
+            # companiesテーブルから企業名を取得
+            tickers = [f['ticker_symbol'] for f in fav_res.data]
+            comp_res = supabase.table("companies").select("ticker_symbol, company_name").in_("ticker_symbol", tickers).execute()
+            comp_dict = {c['ticker_symbol']: c['company_name'] for c in comp_res.data} if comp_res.data else {}
+            
             cols = st.columns(min(len(fav_res.data), 8))
             for i, fav in enumerate(fav_res.data):
                 with cols[i % len(cols)]:
                     t = fav['ticker_symbol']
-                    n = fav['company_name']
-                    if st.button(f"{n}\n({t})", key=f"fav_btn_{t}", use_container_width=True):
+                    n = comp_dict.get(t, "")
+                    label = f"{n}\n({t})" if n else t
+                    if st.button(label, key=f"fav_btn_{t}", use_container_width=True):
                         st.session_state["selected_ticker_direct"] = t
                         st.rerun()
 
