@@ -83,7 +83,7 @@ def fetch_kabutan_margin_ranking():
                     if not ticker.isdigit():
                         continue
                         
-                    # col[9]=株数(売り残 or 買い残), col[10]=信用倍率 が正しいマッピング
+                    # col[9]=株数(売り残 or 買い残), col[10]=信用倍率, col[12]=前週比
                     # 残高（株数）
                     volume_str = cols[9].text.replace(',', '').strip()
                     try:
@@ -98,22 +98,43 @@ def fetch_kabutan_margin_ranking():
                     except ValueError:
                         ratio = 0.0
                         
+                    # 前週比
+                    change_str = cols[12].text.replace(',', '').replace('+', '').strip()
+                    try:
+                        change_vol = int(change_str)
+                    except ValueError:
+                        change_vol = 0
+                        
                     buy_vol = 0
                     sell_vol = 0
+                    buy_change = 0
+                    sell_change = 0
                     
                     if mode in ['7_1', '7_3']:
                         sell_vol = volume
+                        sell_change = change_vol
                         buy_vol = int(math.floor(sell_vol * ratio)) if ratio > 0 else 0
+                        # 逆側のchangeは計算できないので0のまま
                     else:
                         buy_vol = volume
+                        buy_change = change_vol
                         sell_vol = int(math.floor(buy_vol / ratio)) if ratio > 0 else 0
                         
-                    results_dict[ticker] = {
-                        'ticker_symbol': ticker,
-                        'margin_buy_volume': buy_vol,
-                        'margin_sell_volume': sell_vol,
-                        'margin_ratio': ratio if ratio > 0 else None
-                    }
+                    # すでに同じtickerが辞書にある場合、0のほうを更新する（モード違いで両方取れる場合）
+                    if ticker in results_dict:
+                        if mode in ['7_1', '7_3']:
+                            results_dict[ticker]['margin_sell_volume_change'] = sell_change
+                        else:
+                            results_dict[ticker]['margin_buy_volume_change'] = buy_change
+                    else:
+                        results_dict[ticker] = {
+                            'ticker_symbol': ticker,
+                            'margin_buy_volume': buy_vol,
+                            'margin_sell_volume': sell_vol,
+                            'margin_buy_volume_change': buy_change,
+                            'margin_sell_volume_change': sell_change,
+                            'margin_ratio': ratio if ratio > 0 else None
+                        }
                     data_count += 1
                 
                 print(f"    - {page} ページ目を取得完了 ({data_count}件)")
