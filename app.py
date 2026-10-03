@@ -436,32 +436,51 @@ with tab3:
             st.subheader("📅 決算発表アノマリー (期待買い)")
             st.write("過去10年間の株価データから、決算発表月に向けて期待買いで株価が上がりやすい銘柄を抽出します。\n(※決算発表による乱高下リスクを避けるため、発表月の**前月末**に売却した場合のシミュレーションです)")
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             sort_by_e = col1.selectbox("ランキングの基準 ", ["平均リターンが高い順", "勝率が高い順"])
             buy_offset_e = col2.selectbox("仕込みタイミング ", ["1ヶ月前", "2ヶ月前", "3ヶ月前"])
+            target_period_e = col3.selectbox("次回決算日の対象", ["今後2ヶ月以内", "今後3ヶ月以内", "すべて (過去分含む)"])
             
             offset_map_e = {"1ヶ月前": 1, "2ヶ月前": 2, "3ヶ月前": 3}
             offset_val_e = offset_map_e[buy_offset_e]
             
             if st.button("決算アノマリーを表示"):
-                with st.spinner("決算アノマリーデータを取得中..."):
-                    order_col_e = f"avg_return_{offset_val_e}m" if sort_by_e == "平均リターンが高い順" else f"win_rate_{offset_val_e}m"
-                    anom_res = supabase.table("earnings_anomaly_results").select(f"ticker_symbol, target_month, analyzed_years, win_rate_{offset_val_e}m, avg_return_{offset_val_e}m").order(order_col_e, desc=True).limit(100).execute()
+                with st.spinner("決算アノマリーデータを取得・集計中..."):
+                    # まず全件のアノマリー結果を取得 (APIリミットが気になる場合はページネーションだが、数百〜数千なので今回は一括取得でいけるか確認)
+                    anom_res = supabase.table("earnings_anomaly_results").select(f"ticker_symbol, target_month, analyzed_years, win_rate_{offset_val_e}m, avg_return_{offset_val_e}m").execute()
                     
                     if anom_res.data:
-                        tickers = [d['ticker_symbol'] for d in anom_res.data]
-                        comp_res = supabase.table("companies").select("ticker_symbol, company_name, next_earnings_date").in_("ticker_symbol", tickers).execute()
                         df_anom = pd.DataFrame(anom_res.data)
+                        
+                        # 企業情報を取得 (今回は全件の次回決算日を引く)
+                        comp_res = supabase.table("companies").select("ticker_symbol, company_name, next_earnings_date").not_.is_("next_earnings_date", "null").execute()
                         df_comp = pd.DataFrame(comp_res.data)
                         
-                        df_merged = pd.merge(df_anom, df_comp, on="ticker_symbol", how="left")
-                        df_display = df_merged[["ticker_symbol", "company_name", "target_month", "next_earnings_date", "analyzed_years", f"win_rate_{offset_val_e}m", f"avg_return_{offset_val_e}m"]]
-                        df_display.columns = ["コード", "銘柄名", "決算発表月", "次回決算日", "データ年数", "勝率", "平均リターン"]
+                        df_merged = pd.merge(df_anom, df_comp, on="ticker_symbol", how="inner")
                         
-                        df_display["勝率"] = df_display["勝率"].apply(lambda x: f"{x*100:.1f} %" if pd.notna(x) else "-")
-                        df_display["平均リターン"] = df_display["平均リターン"].apply(lambda x: f"{x*100:+.2f} %" if pd.notna(x) else "-")
+                        # 期間フィルタリング
+                        if target_period_e != "すべて (過去分含む)":
+                            today = datetime.date.today()
+                            days = 60 if target_period_e == "今後2ヶ月以内" else 90
+                            future_date = today + datetime.timedelta(days=days)
+                            
+                            df_merged['next_earnings_date_dt'] = pd.to_datetime(df_merged['next_earnings_date']).dt.date
+                            df_merged = df_merged[(df_merged['next_earnings_date_dt'] >= today) & (df_merged['next_earnings_date_dt'] <= future_date)]
                         
-                        st.dataframe(df_display, hide_index=True, use_container_width=True)
+                        if df_merged.empty:
+                            st.info(f"{target_period_e} に決算発表が予定されている銘柄は見つかりませんでした。")
+                        else:
+                            # ソート
+                            order_col_e = f"avg_return_{offset_val_e}m" if sort_by_e == "平均リターンが高い順" else f"win_rate_{offset_val_e}m"
+                            df_merged = df_merged.sort_values(order_col_e, ascending=False).head(100)
+                            
+                            df_display = df_merged[["ticker_symbol", "company_name", "target_month", "next_earnings_date", "analyzed_years", f"win_rate_{offset_val_e}m", f"avg_return_{offset_val_e}m"]]
+                            df_display.columns = ["コード", "銘柄名", "決算発表月", "次回決算日", "データ年数", "勝率", "平均リターン"]
+                            
+                            df_display["勝率"] = df_display["勝率"].apply(lambda x: f"{x*100:.1f} %" if pd.notna(x) else "-")
+                            df_display["平均リターン"] = df_display["平均リターン"].apply(lambda x: f"{x*100:+.2f} %" if pd.notna(x) else "-")
+                            
+                            st.dataframe(df_display, hide_index=True, use_container_width=True)
                     else:
                         st.info("データがありません。分析バッチを実行してください。")
 
